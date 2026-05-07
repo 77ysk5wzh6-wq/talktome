@@ -6,9 +6,19 @@
 <style>
   :root { color-scheme: light; }
   html, body {
-    margin: 0; padding: 0; height: 100%; background: #ffffff;
+    margin: 0; padding: 0; height: 100%;
     color: #111; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Apple SD Gothic Neo", sans-serif;
     overflow: hidden;
+    /* Faint dot grid that lines up with the caption-placement grid (64x32px).
+       Each cell origin gets a 1px dot at ~7% opacity -- visible only when the
+       eye relaxes, gone when reading captions. */
+    background-color: #ffffff;
+    /* Hairline grid: faint orange. */
+    background-image:
+      linear-gradient(to right,  rgba(255, 140, 26, 0.10) 0.5px, transparent 0.5px),
+      linear-gradient(to bottom, rgba(255, 140, 26, 0.10) 0.5px, transparent 0.5px);
+    background-size: 32px 16px;
+    background-position: 16px 16px;   /* match SAFE_MARGIN_PX */
   }
   #stage {
     position: fixed; inset: 0;
@@ -34,6 +44,33 @@
     z-index: 20; pointer-events: none;
     white-space: pre;
   }
+  #legend {
+    position: fixed; top: 16px; right: 16px;
+    font: 10px/1.5 monospace; color: #444;
+    z-index: 20; user-select: none;
+  }
+  #legend button.row {
+    all: unset;
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 4px; padding: 2px 6px;
+    cursor: pointer; border-radius: 3px;
+    transition: background-color 200ms ease, opacity 200ms ease;
+  }
+  #legend button.row:hover { background-color: rgba(0,0,0,0.04); }
+  #legend button.row.active { background-color: rgba(0,0,0,0.08); }
+  #legend .swatch {
+    display: inline-block; width: 18px; height: 10px;
+    border: 1px solid currentColor;
+  }
+  #legend .swatch.ent  { background: #ff00ff; color: #ff00ff; border-radius: 0; }
+  #legend .swatch.act  { background: #00e5ff; color: #00e5ff; border-radius: 4px; }
+  #legend .swatch.qua  { background: #4cd44c; color: #4cd44c; border-radius: 50%; }
+  #legend .swatch.rel  {
+    background: transparent; color: #8a8a8a;
+    border-style: dashed; border-radius: 0;
+  }
+  #legend .label { color: #444; }
+  #legend .upos  { color: #888; font-size: 9px; }
   #wires {
     position: fixed;
     left: 0; top: 0;
@@ -42,27 +79,73 @@
     z-index: 5;
     overflow: visible;
   }
-  #wires path, #wires rect, #wires ellipse {
+  #wires path {
     fill: none;
     stroke-width: 0.22;
     stroke-opacity: 0.85;
   }
+  #wires rect, #wires ellipse {
+    stroke-width: 0.22;
+    stroke-opacity: 0.85;
+    /* Fill is set per-category below; per-element fill-opacity carries the
+       size (main/sub/micro) into a transparency level. */
+  }
   /* ENTITY (NOUN/PROPN/PRON): hard right-angle traces, crisp edges, magenta */
   #wires path.entity { stroke: #ff00ff; shape-rendering: crispEdges; }
-  #wires rect.entity-box { stroke: #ff00ff; }
+  #wires rect.entity-box { stroke: #ff00ff; fill: #ff00ff; }
   #wires circle.entity-port { stroke: #ff00ff; fill: #ff00ff; }
   /* ACTION (VERB/AUX): orthogonal but with large rounded corners, cyan */
   #wires path.action { stroke: #00e5ff; stroke-linejoin: round; stroke-linecap: round; }
-  #wires rect.action-box { stroke: #00e5ff; }
+  #wires rect.action-box { stroke: #00e5ff; fill: #00e5ff; }
   #wires circle.action-port { stroke: #00e5ff; fill: #00e5ff; }
   /* QUALITY (ADJ/ADV): smooth bezier curves, green-lime */
   #wires path.quality { stroke: #4cd44c; stroke-linecap: round; }
-  #wires ellipse.quality-box { stroke: #4cd44c; }
+  #wires ellipse.quality-box { stroke: #4cd44c; fill: #4cd44c; }
   #wires circle.quality-port { stroke: #4cd44c; fill: #4cd44c; }
   /* RELATION (ADP/CCONJ/SCONJ/DET/PART): gray dashed straight wire */
   #wires path.relation { stroke: #8a8a8a; stroke-dasharray: 2 2; }
-  #wires rect.relation-box { stroke: #8a8a8a; stroke-dasharray: 2 1.5; }
+  #wires rect.relation-box { stroke: #8a8a8a; stroke-dasharray: 2 1.5; fill: #8a8a8a; }
   #wires circle.relation-port { stroke: #8a8a8a; fill: #8a8a8a; }
+
+  /* === Category isolation: legend buttons toggle data-focus-cat on body.
+     Slow 600ms fade so it reads as the scene drifting; faded layer never
+     drops below ~0.07 so the rest of the screen barely persists. === */
+  .caption { transition: opacity 600ms ease; }
+  #wires path, #wires rect, #wires ellipse, #wires circle {
+    transition: opacity 600ms ease;
+  }
+  /* Brief glitch flash on focus change. Applied only to the caption layer
+     and the wire SVG -- the white background + grid stays untouched. */
+  @keyframes focusFlash {
+    0%   { opacity: 1;    filter: none; }
+    18%  { opacity: 0.25; filter: brightness(0.6) contrast(1.4); }
+    36%  { opacity: 1.1;  filter: brightness(1.6) contrast(0.85); }
+    52%  { opacity: 0.55; filter: brightness(0.78); }
+    100% { opacity: 1;    filter: none; }
+  }
+  body.focus-flash #stage,
+  body.focus-flash #wires { animation: focusFlash 220ms steps(8, end); }
+  body[data-focus-cat] .caption { opacity: 0.12; }
+  body[data-focus-cat] #wires path,
+  body[data-focus-cat] #wires rect,
+  body[data-focus-cat] #wires ellipse,
+  body[data-focus-cat] #wires circle { opacity: 0.07; }
+  body[data-focus-cat="ENTITY"] .caption:has(.word[data-cat="ENTITY"]),
+  body[data-focus-cat="ENTITY"] #wires path.entity,
+  body[data-focus-cat="ENTITY"] #wires rect.entity-box,
+  body[data-focus-cat="ENTITY"] #wires circle.entity-port { opacity: 1; }
+  body[data-focus-cat="ACTION"] .caption:has(.word[data-cat="ACTION"]),
+  body[data-focus-cat="ACTION"] #wires path.action,
+  body[data-focus-cat="ACTION"] #wires rect.action-box,
+  body[data-focus-cat="ACTION"] #wires circle.action-port { opacity: 1; }
+  body[data-focus-cat="QUALITY"] .caption:has(.word[data-cat="QUALITY"]),
+  body[data-focus-cat="QUALITY"] #wires path.quality,
+  body[data-focus-cat="QUALITY"] #wires ellipse.quality-box,
+  body[data-focus-cat="QUALITY"] #wires circle.quality-port { opacity: 1; }
+  body[data-focus-cat="RELATION"] .caption:has(.word[data-cat="RELATION"]),
+  body[data-focus-cat="RELATION"] #wires path.relation,
+  body[data-focus-cat="RELATION"] #wires rect.relation-box,
+  body[data-focus-cat="RELATION"] #wires circle.relation-port { opacity: 1; }
   .caption {
     position: absolute;
     pointer-events: none;
@@ -112,30 +195,53 @@
 <div id="stage"></div>
 <svg id="wires" xmlns="http://www.w3.org/2000/svg"></svg>
 <video id="cam" autoplay muted playsinline style="display:none"></video>
+<div id="legend">
+  <button class="row" data-cat="ENTITY"><span class="swatch ent"></span><span class="label">ENTITY</span><span class="upos">noun · pron</span></button>
+  <button class="row" data-cat="ACTION"><span class="swatch act"></span><span class="label">ACTION</span><span class="upos">verb · aux</span></button>
+  <button class="row" data-cat="QUALITY"><span class="swatch qua"></span><span class="label">QUALITY</span><span class="upos">adj · adv</span></button>
+  <button class="row" data-cat="RELATION"><span class="swatch rel"></span><span class="label">RELATION</span><span class="upos">adp · conj · det · part</span></button>
+</div>
 <div id="stats"></div>
 <div id="start"><button id="startBtn">시작</button></div>
 <script>
 // Three tiers: main (large + loud), sub (medium), micro (tiny + quiet).
 const TRACK_LAYERS = [
   // 2 main tracks
-  // 4 main slots rotate the languages so each one shows up in main equally.
-  // Each track always picks from its own `lang` -> en/ja/ko/zh appear in turn.
-  { name: "m_en", tier: "loud", volume: 0.85, captionClass: "caption main", lang: "en" },
-  { name: "m_ja", tier: "loud", volume: 0.85, captionClass: "caption main", lang: "ja" },
-  // sub tracks: medium presence, distributed across the remaining 3 langs
-  { name: "u_zh", tier: "any",   volume: 0.30, captionClass: "caption sub", lang: "zh" },
-  { name: "u_ko", tier: "any",   volume: 0.30, captionClass: "caption sub", lang: "ko" },
-  { name: "u_en", tier: "any",   volume: 0.28, captionClass: "caption sub", lang: "en" },
-  { name: "u_ja", tier: "quiet", volume: 0.25, captionClass: "caption sub", lang: "ja" },
-  { name: "u_zh2",tier: "quiet", volume: 0.23, captionClass: "caption sub", lang: "zh" },
-  // micro tracks: faint backdrop
-  { name: "t_ko", tier: "any",   volume: 0.06, captionClass: "caption micro", lang: "ko" },
-  { name: "t_en", tier: "quiet", volume: 0.05, captionClass: "caption micro", lang: "en" },
-  // silent micro captions, one per language for visual diversity
-  { name: "s_ja", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "ja" },
+  // Two main tracks: clearly audible, language picked uniformly each time.
+  { name: "m1", tier: "loud", volume: 0.95, captionClass: "caption main" },
+  { name: "m2", tier: "any",  volume: 0.95, captionClass: "caption main" },
+  // Six sub tracks, one per language.
+  { name: "u_en", tier: "any", volume: 0.14, captionClass: "caption sub", lang: "en" },
+  { name: "u_zh", tier: "any", volume: 0.14, captionClass: "caption sub", lang: "zh" },
+  { name: "u_ko", tier: "any", volume: 0.18, captionClass: "caption sub", lang: "ko" },
+  { name: "u_ja", tier: "any", volume: 0.13, captionClass: "caption sub", lang: "ja" },
+  { name: "u_ar", tier: "any", volume: 0.14, captionClass: "caption sub", lang: "ar" },
+  { name: "u_no", tier: "any", volume: 0.14, captionClass: "caption sub", lang: "no" },
+  // Six micro tracks, one per language.
+  { name: "t_en", tier: "any", volume: 0.025, captionClass: "caption micro", lang: "en" },
+  { name: "t_zh", tier: "any", volume: 0.025, captionClass: "caption micro", lang: "zh" },
+  { name: "t_ko", tier: "any", volume: 0.030, captionClass: "caption micro", lang: "ko" },
+  { name: "t_ja", tier: "any", volume: 0.025, captionClass: "caption micro", lang: "ja" },
+  { name: "t_ar", tier: "any", volume: 0.025, captionClass: "caption micro", lang: "ar" },
+  { name: "t_no", tier: "any", volume: 0.025, captionClass: "caption micro", lang: "no" },
+  // Silent visual-only sub-size tracks.
+  { name: "ss_en", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "en" },
+  { name: "ss_ar", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "ar" },
+  // Silent micro tracks.
+  { name: "s_en", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "en" },
   { name: "s_zh", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "zh" },
   { name: "s_ko", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "ko" },
+  { name: "s_ja", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "ja" },
+  { name: "s_no", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "no" },
+  { name: "s_ar", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "ar" },
 ];
+
+// Per-language playback boost. KsponSpeech is recorded a touch quieter than
+// the other corpora and the +12 dB cap in build_clips_json couldn't lift it
+// all the way to the target RMS. Compensate at playback time so Korean
+// captions sit at the same perceived volume as the others.
+const LANG_BOOST = { en: 1.0, zh: 1.0, ko: 1.4, ja: 1.0, ar: 1.0, no: 1.0 };
+function clampVol(v) { return Math.max(0, Math.min(1, v)); }
 
 const PRELAP_SEC = 1.5;        // 한 트랙 내에서 다음 클립을 이전 끝나기 1.5초 전에 시작 (강한 중첩)
 const SAFE_MARGIN_PX = 16;
@@ -167,19 +273,34 @@ function pickRandom(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
 
+const ALL_LANGS = ["en", "zh", "ko", "ja", "ar", "no"];
+
 function pickRandomUnique(tier, lang) {
-  // Pick from the tier's pool (loud / quiet / any), optionally restricted to
-  // a single language so each track can stake out one of en/zh/ko/ja.
+  // Two-stage sampling so each language gets equal weight regardless of how
+  // many of its clips happen to fall in the chosen tier:
+  //   1. If `lang` is unset, pick a language uniformly from ALL_LANGS.
+  //   2. Pick a clip uniformly from that language's slice of the tier pool.
   let pool;
   if (tier === "loud")        pool = loudClips;
   else if (tier === "quiet")  pool = quietClips;
   else                         pool = clips;
-  if (lang) pool = pool.filter(c => c.lang === lang);
-  let available = pool.filter(c => !activeClipFiles.has(c.file));
-  if (available.length === 0) available = pool;
+
+  let chosenLang = lang;
+  if (!chosenLang) {
+    // Try a few times so we don't pick a language that's empty in this tier.
+    const order = [...ALL_LANGS].sort(() => Math.random() - 0.5);
+    for (const l of order) {
+      if (pool.some(c => c.lang === l)) { chosenLang = l; break; }
+    }
+    if (!chosenLang) chosenLang = ALL_LANGS[Math.floor(Math.random() * ALL_LANGS.length)];
+  }
+
+  let langPool = pool.filter(c => c.lang === chosenLang);
+  let available = langPool.filter(c => !activeClipFiles.has(c.file));
+  if (available.length === 0) available = langPool;
   if (available.length === 0) {
-    // Last-resort fallback: any clip in the language (across tiers), then anything.
-    available = lang ? clips.filter(c => c.lang === lang) : clips;
+    // Tier had nothing for this lang -> fall back to that lang in the full set.
+    available = clips.filter(c => c.lang === chosenLang);
   }
   if (available.length === 0) available = clips;
   return available[Math.floor(Math.random() * available.length)];
@@ -332,6 +453,8 @@ function makeCaptionEl(clip, layerClass) {
   const lang = clip.lang;
   const el = document.createElement("div");
   el.className = layerClass;
+  if (lang === "ar") el.setAttribute("dir", "rtl");
+  if (lang) el.setAttribute("lang", lang);
 
   // --- Path 1: pre-tagged tokens from clips.json ---
   if (Array.isArray(clip.tokens) && clip.tokens.length) {
@@ -423,23 +546,70 @@ function appendGap(el, gap) {
 }
 
 let captionSeq = 0;
+// Invisible layout grid. Captions snap their top-left to a grid cell, and
+// each cell can host at most ~one active caption rect at a time -- if a cell
+// already overlaps a live caption, we try another random cell. Falls back to
+// random placement if the grid is saturated.
+const GRID_CELL_W = 64;
+const GRID_CELL_H = 32;
+const GRID_PLACEMENT_TRIES = 24;
+
 function placeCaption(el) {
-  // Add to stage offscreen first to measure size, then position randomly within safe area
   el.style.left = "-9999px";
   el.style.top = "-9999px";
   stage.appendChild(el);
-  // Sequence id: lets the wire loop pair captions in arrival order so wires
-  // between caption A's subj and caption B's subj are visually distinguishable
-  // from the wires between B and C.
   el.dataset.cap = String(captionSeq++);
+
   const w = el.offsetWidth;
   const h = el.offsetHeight;
-  const maxX = Math.max(SAFE_MARGIN_PX, window.innerWidth - w - SAFE_MARGIN_PX);
-  const maxY = Math.max(SAFE_MARGIN_PX, window.innerHeight - h - SAFE_MARGIN_PX);
-  const x = SAFE_MARGIN_PX + Math.random() * (maxX - SAFE_MARGIN_PX);
-  const y = SAFE_MARGIN_PX + Math.random() * (maxY - SAFE_MARGIN_PX);
-  el.style.left = `${Math.round(x)}px`;
-  el.style.top = `${Math.round(y)}px`;
+  const W = window.innerWidth, H = window.innerHeight;
+  const maxX = Math.max(SAFE_MARGIN_PX, W - w - SAFE_MARGIN_PX);
+  const maxY = Math.max(SAFE_MARGIN_PX, H - h - SAFE_MARGIN_PX);
+
+  // Build the set of grid origins available within the safe area.
+  const cellsX = Math.max(1, Math.floor((maxX - SAFE_MARGIN_PX) / GRID_CELL_W) + 1);
+  const cellsY = Math.max(1, Math.floor((maxY - SAFE_MARGIN_PX) / GRID_CELL_H) + 1);
+
+  // Existing caption rects so we don't drop on top of them.
+  const liveCaptions = stage.getElementsByClassName("caption");
+  const occupiedRects = [];
+  for (let i = 0; i < liveCaptions.length; i++) {
+    const c = liveCaptions[i];
+    if (c === el) continue;
+    if (!c.offsetWidth) continue;
+    const r = c.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) continue;
+    occupiedRects.push(r);
+  }
+
+  function rectOverlaps(x, y) {
+    const PAD = 4;
+    for (const r of occupiedRects) {
+      if (x < r.right + PAD && x + w > r.left - PAD &&
+          y < r.bottom + PAD && y + h > r.top - PAD) return true;
+    }
+    return false;
+  }
+
+  // Try N random grid cells; first non-overlapping one wins.
+  let chosenX = -1, chosenY = -1;
+  for (let t = 0; t < GRID_PLACEMENT_TRIES; t++) {
+    const cx = Math.floor(Math.random() * cellsX);
+    const cy = Math.floor(Math.random() * cellsY);
+    const x = SAFE_MARGIN_PX + cx * GRID_CELL_W;
+    const y = SAFE_MARGIN_PX + cy * GRID_CELL_H;
+    if (x > maxX || y > maxY) continue;
+    if (!rectOverlaps(x, y)) { chosenX = x; chosenY = y; break; }
+  }
+  if (chosenX < 0) {
+    // Grid saturated -> fall back to a random spot, still snapped to grid.
+    const x = SAFE_MARGIN_PX + Math.floor(Math.random() * cellsX) * GRID_CELL_W;
+    const y = SAFE_MARGIN_PX + Math.floor(Math.random() * cellsY) * GRID_CELL_H;
+    chosenX = Math.min(x, maxX);
+    chosenY = Math.min(y, maxY);
+  }
+  el.style.left = `${chosenX}px`;
+  el.style.top  = `${chosenY}px`;
 }
 
 // Single RAF-driven scheduler for caption character animations.
@@ -566,7 +736,7 @@ class Track {
     const clip = pickRandomUnique(this.layer.tier, this.layer.lang);
     activeClipFiles.add(clip.file);
     const audio = new Audio(clip.file);
-    audio.volume = this.layer.volume;
+    audio.volume = clampVol((this.layer.volume || 0) * (LANG_BOOST[clip.lang] || 1));
     audio.preload = "auto";
 
     let scheduledNext = false;
@@ -766,6 +936,47 @@ function startWireLoop() {
   // pairKey = `${cat}|${capIdA}-${wordIdxA}|${capIdB}-${wordIdxB}` (sorted).
   // Phase: "enter" (drawing in), "live" (visible), "exit" (drawing out).
   const wires = new Map();
+
+  // Shared <defs> hosts every wire's <linearGradient>. The gradient lets the
+  // stroke fade between the two endpoint opacities so a "main word -> micro
+  // word" wire visibly tapers from solid to faint.
+  const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+  svg.appendChild(defs);
+  let gradSeq = 0;
+  // Cat -> base stroke colour (matches CSS for path.<cat>).
+  const CAT_COLOR = {
+    ENTITY:   "#ff00ff",
+    ACTION:   "#00e5ff",
+    QUALITY:  "#4cd44c",
+    RELATION: "#8a8a8a",
+  };
+
+  function makeGradient(cat) {
+    const id = `wgrad${gradSeq++}`;
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "linearGradient");
+    g.setAttribute("id", id);
+    g.setAttribute("gradientUnits", "userSpaceOnUse");
+    const s0 = document.createElementNS("http://www.w3.org/2000/svg", "stop");
+    s0.setAttribute("offset", "0%");
+    s0.setAttribute("stop-color", CAT_COLOR[cat] || "#ffffff");
+    s0.setAttribute("stop-opacity", "1");
+    const s1 = document.createElementNS("http://www.w3.org/2000/svg", "stop");
+    s1.setAttribute("offset", "100%");
+    s1.setAttribute("stop-color", CAT_COLOR[cat] || "#ffffff");
+    s1.setAttribute("stop-opacity", "1");
+    g.appendChild(s0);
+    g.appendChild(s1);
+    defs.appendChild(g);
+    return { el: g, id, s0, s1 };
+  }
+
+  // Map per-word fillOpacity (0.06–0.32) to a stroke-opacity stop that reads
+  // well on white. main words get full visibility; micro words taper to ~0.2.
+  function strokeAlphaFor(fillOpacity) {
+    if (fillOpacity >= 0.30) return 1.0;     // main
+    if (fillOpacity >= 0.10) return 0.55;    // sub
+    return 0.22;                              // micro/silent
+  }
 
   function getRectBox(cat, cls) {
     const idx = boxInUse[cat]++;
@@ -1086,11 +1297,18 @@ function startWireLoop() {
       const cy = r.top + r.height / 2;
       const wIdx = wordOrder.get(w) ?? 0;
       const lastIdx = lastWordIdxByCap.get(cap) ?? wIdx;
+      // Caption size class -> fill opacity for the box. Bigger caption =
+      // more solid fill; micro/silent are nearly invisible washes.
+      let fillOpacity = 0.05;
+      if (cap.classList.contains("main"))      fillOpacity = 0.32;
+      else if (cap.classList.contains("sub"))  fillOpacity = 0.14;
+      else                                      fillOpacity = 0.06;
       buckets[cat].push({
         capId: +capId,
         wordIdx: wIdx,
         isFirstInCap: wIdx === 0,
         isLastInCap:  wIdx === lastIdx,
+        fillOpacity,
         x: cx, y: cy, rect: r,
         left:   { x: r.left   - PAD, y: cy },
         right:  { x: r.right  + PAD, y: cy },
@@ -1108,6 +1326,7 @@ function startWireLoop() {
       box.setAttribute("width", (r.width + PAD * 2).toFixed(1));
       box.setAttribute("height", (r.height + PAD * 2).toFixed(1));
       box.setAttribute("rx", "0");
+      box.setAttribute("fill-opacity", p.fillOpacity);
       p.usedPorts = new Set();
     }
     for (const p of buckets.ACTION) {
@@ -1118,6 +1337,7 @@ function startWireLoop() {
       box.setAttribute("width", (r.width + PAD * 2).toFixed(1));
       box.setAttribute("height", (r.height + PAD * 2).toFixed(1));
       box.setAttribute("rx", (Math.min(r.height, r.width) * 0.45).toFixed(1));
+      box.setAttribute("fill-opacity", p.fillOpacity);
       p.usedPorts = new Set();
     }
     for (const p of buckets.QUALITY) {
@@ -1127,6 +1347,7 @@ function startWireLoop() {
       e.setAttribute("cy", (r.top + r.height / 2).toFixed(1));
       e.setAttribute("rx", (r.width / 2 + PAD + 2).toFixed(1));
       e.setAttribute("ry", (r.height / 2 + PAD).toFixed(1));
+      e.setAttribute("fill-opacity", p.fillOpacity);
       p.usedPorts = new Set();
     }
     for (const p of buckets.RELATION) {
@@ -1137,6 +1358,7 @@ function startWireLoop() {
       box.setAttribute("width", (r.width + PAD * 2).toFixed(1));
       box.setAttribute("height", (r.height + PAD * 2).toFixed(1));
       box.setAttribute("rx", "0");
+      box.setAttribute("fill-opacity", p.fillOpacity);
       p.usedPorts = new Set();
     }
 
@@ -1178,44 +1400,57 @@ function startWireLoop() {
 
         let rec = wires.get(key);
         if (!rec) {
-          // New pair -> create path, start "enter" animation.
+          // New pair -> create path + per-pair gradient, start "enter".
+          const grad = makeGradient(cat);
           const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
           path.setAttribute("class", CAT_CLASS[cat]);
           path.setAttribute("d", d);
+          // Override CSS `stroke` so the gradient drives the colour.
+          path.style.stroke = `url(#${grad.id})`;
           svg.appendChild(path);
           rec = {
-            path, cat, phase: "enter", phaseStartedAt: now,
-            d,
-            // Cache length once -- enter/exit animation locks d so length stays valid.
-            length: 0,
+            path, cat, grad, phase: "enter", phaseStartedAt: now,
+            d, length: 0, lastOffset: -1, gradSig: "",
           };
-          // Measure length right away. Calling getTotalLength after setting d
-          // forces a sync layout in some browsers but gives us a stable value.
           rec.length = path.getTotalLength() || 1;
           path.style.strokeDasharray = rec.length;
-          path.style.strokeDashoffset = rec.length;   // start fully hidden
+          path.style.strokeDashoffset = rec.length;
+          rec.lastOffset = rec.length;
           wires.set(key, rec);
         } else if (rec.phase === "live") {
-          // Live: free to update d (and refresh length) each frame.
           if (rec.d !== d) {
             rec.path.setAttribute("d", d);
             rec.d = d;
             rec.length = rec.path.getTotalLength() || rec.length;
             rec.path.style.strokeDasharray = rec.length;
             rec.path.style.strokeDashoffset = 0;
+            rec.lastOffset = 0;
           }
         } else if (rec.phase === "exit") {
-          // Cancelling an exit: restart enter from where the offset is now.
-          // Don't change d / length so the dasharray stays consistent.
           rec.phase = "enter";
-          // Compute current offset to back-solve a phase start that produces
-          // the same offset, so the wire keeps drawing in from where it was.
           const remaining = parseFloat(rec.path.style.strokeDashoffset) || 0;
           const ratio = remaining / rec.length;
-          // We want easeOutCubic(t) to equal (1 - ratio).
           const target = 1 - ratio;
-          const t = 1 - Math.cbrt(1 - target);   // inverse easeOutCubic
+          const t = 1 - Math.cbrt(1 - target);
           rec.phaseStartedAt = now - t * WIRE_ENTER_MS;
+        }
+
+        // Steer the gradient. Word _finalRect is cached, so the same pair
+        // produces identical gradient coords every frame -- skip setAttribute
+        // unless something actually changed.
+        const x1 = start.x.toFixed(1), y1 = start.y.toFixed(1);
+        const x2 = end.x.toFixed(1),   y2 = end.y.toFixed(1);
+        const a0 = strokeAlphaFor(a.fillOpacity).toFixed(2);
+        const a1 = strokeAlphaFor(b.fillOpacity).toFixed(2);
+        const sig = `${x1}|${y1}|${x2}|${y2}|${a0}|${a1}`;
+        if (rec.gradSig !== sig) {
+          rec.grad.el.setAttribute("x1", x1);
+          rec.grad.el.setAttribute("y1", y1);
+          rec.grad.el.setAttribute("x2", x2);
+          rec.grad.el.setAttribute("y2", y2);
+          rec.grad.s0.setAttribute("stop-opacity", a0);
+          rec.grad.s1.setAttribute("stop-opacity", a1);
+          rec.gradSig = sig;
         }
 
         a.usedPorts.add(sideA);
@@ -1241,13 +1476,19 @@ function startWireLoop() {
         offset = easeInCubic(t) * len;
         if (t >= 1) {
           path.remove();
+          if (rec.grad) rec.grad.el.remove();
           wires.delete(key);
           continue;
         }
       } else {
         offset = 0;
       }
-      path.style.strokeDashoffset = offset;
+      // Only write if the offset actually changed; in "live" this is always 0
+      // so subsequent frames are zero-cost.
+      if (rec.lastOffset !== offset) {
+        path.style.strokeDashoffset = offset;
+        rec.lastOffset = offset;
+      }
     }
 
     // 5. Any wire still in `wires` but not in aliveKeys -> start exit phase.
@@ -1259,31 +1500,40 @@ function startWireLoop() {
       }
     }
 
-    // 6. Draw active ports.
+    // 6. Draw active ports. Each port inherits its parent word's
+    //    fillOpacity so micro-caption ports fade like their boxes.
+    const portAlpha = strokeAlphaFor;
     for (const cat of DRAWN_CATS) {
       for (const p of buckets[cat]) {
+        const a = portAlpha(p.fillOpacity);
         for (const side of p.usedPorts) {
           const port = getPort(cat);
           port.setAttribute("cx", p[side].x.toFixed(1));
           port.setAttribute("cy", p[side].y.toFixed(1));
           port.setAttribute("r", "0.9");
+          port.setAttribute("fill-opacity", a.toFixed(2));
+          port.setAttribute("stroke-opacity", a.toFixed(2));
         }
       }
     }
 
     hideExtras();
-    requestAnimationFrame(safeTick);
   }
 
   function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
   function easeInCubic(t)  { return t * t * t; }
 
+  // Throttle: run tick at most every TICK_INTERVAL_MS (~30fps).
+  const TICK_INTERVAL_MS = 33;
+  let lastTickAt = 0;
   function safeTick(now) {
-    try { tick(now || performance.now()); }
-    catch (e) {
-      console.error("wire tick error", e);
-      requestAnimationFrame(safeTick);
+    const t = now || performance.now();
+    if (t - lastTickAt >= TICK_INTERVAL_MS) {
+      lastTickAt = t;
+      try { tick(t); }
+      catch (e) { console.error("wire tick error", e); }
     }
+    requestAnimationFrame(safeTick);
   }
   requestAnimationFrame(safeTick);
 }
@@ -1330,6 +1580,28 @@ async function main() {
     TRACK_LAYERS.forEach((layer, i) => {
       const t = new Track(layer);
       setTimeout(() => t.start(), i * TRACK_START_STAGGER_MS);
+    });
+  });
+
+  // Legend buttons toggle category isolation: click once to highlight, click
+  // the same button again (or another) to switch / clear. A short glitch
+  // flash is fired on every change.
+  document.querySelectorAll("#legend button.row").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const cat = btn.dataset.cat;
+      const cur = document.body.dataset.focusCat;
+      document.querySelectorAll("#legend button.row").forEach(b => b.classList.remove("active"));
+      if (cur === cat) {
+        delete document.body.dataset.focusCat;
+      } else {
+        document.body.dataset.focusCat = cat;
+        btn.classList.add("active");
+      }
+      // Re-trigger the flash animation by removing then re-adding the class.
+      document.body.classList.remove("focus-flash");
+      // Force a reflow so the animation restarts even on repeated clicks.
+      void document.body.offsetWidth;
+      document.body.classList.add("focus-flash");
     });
   });
 }

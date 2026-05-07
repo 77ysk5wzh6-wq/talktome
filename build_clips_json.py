@@ -29,10 +29,12 @@ CLIPS_JSON = WEB / "clips.json"
 
 SOURCES = [
     # (folder, lang, wav_glob)
-    (WEB / "english_audio",        "en", "en_pls_*.wav"),
-    (WEB / "chinese_audio_clips",  "zh", "zh_*.wav"),
-    (WEB / "korean_audio_clips",   "ko", "ko_*.wav"),
-    (WEB / "japanese_audio_clips", "ja", "ja_*.wav"),
+    (WEB / "english_audio",          "en", "en_pls_*.wav"),
+    (WEB / "chinese_audio_clips",    "zh", "zh_*.wav"),
+    (WEB / "korean_audio_clips",     "ko", "ko_*.wav"),
+    (WEB / "japanese_audio_clips",   "ja", "ja_*.wav"),
+    (WEB / "arabic_audio_clips",     "ar", "ar_*.wav"),
+    (WEB / "norwegian_audio_clips",  "no", "no_*.wav"),
 ]
 
 

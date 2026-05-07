@@ -42,10 +42,12 @@ AUDIO = WEB / "audio"
 CLIPS_JSON = WEB / "clips.json"
 
 SOURCES = [
-    (WEB / "english_audio",        "en", "en_pls_*.wav"),
-    (WEB / "chinese_audio_clips",  "zh", "zh_*.wav"),
-    (WEB / "korean_audio_clips",   "ko", "ko_*.wav"),
-    (WEB / "japanese_audio_clips", "ja", "ja_*.wav"),
+    (WEB / "english_audio",          "en", "en_pls_*.wav"),
+    (WEB / "chinese_audio_clips",    "zh", "zh_*.wav"),
+    (WEB / "korean_audio_clips",     "ko", "ko_*.wav"),
+    (WEB / "japanese_audio_clips",   "ja", "ja_*.wav"),
+    (WEB / "arabic_audio_clips",     "ar", "ar_*.wav"),
+    (WEB / "norwegian_audio_clips",  "no", "no_*.wav"),
 ]
 
 UPOS_TO_CAT = {
@@ -78,23 +80,28 @@ def read_text(p: Path) -> str:
     return raw.decode("utf-8", errors="ignore").strip()
 
 
+# Map our internal lang codes -> Stanza language codes.
+# Stanza uses "nb" for Norwegian Bokmål; we keep "no" in clips.json for clarity.
+STANZA_LANG = {"en": "en", "zh": "zh", "ko": "ko", "ja": "ja", "ar": "ar", "no": "nb"}
+
+
 def load_pipelines(langs: list[str]) -> dict:
     print("Loading Stanza models (downloads on first run)...")
     pipes = {}
     for code in langs:
-        # Stanza language codes match ours: en, zh, ko, ja
+        stanza_code = STANZA_LANG.get(code, code)
         try:
-            stanza.download(code, processors="tokenize,pos", verbose=False)
+            stanza.download(stanza_code, processors="tokenize,pos", verbose=False)
         except Exception as e:
-            print(f"  download warn {code}: {e}")
+            print(f"  download warn {stanza_code}: {e}")
         pipes[code] = stanza.Pipeline(
-            lang=code,
+            lang=stanza_code,
             processors="tokenize,pos",
             tokenize_no_ssplit=False,
             verbose=False,
             use_gpu=False,
         )
-        print(f"  {code} ready")
+        print(f"  {code} (stanza:{stanza_code}) ready")
     return pipes
 
 
@@ -183,7 +190,7 @@ def collect_clips(pipes: dict) -> list[dict]:
 
 
 def main() -> int:
-    pipes = load_pipelines(["en", "zh", "ko", "ja"])
+    pipes = load_pipelines(["en", "zh", "ko", "ja", "ar", "no"])
     entries = collect_clips(pipes)
 
     print(f"\nTotal clips: {len(entries)}")
