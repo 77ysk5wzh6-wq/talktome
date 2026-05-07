@@ -103,8 +103,8 @@
   #wires ellipse.quality-box { stroke: #4cd44c; fill: #4cd44c; }
   #wires circle.quality-port { stroke: #4cd44c; fill: #4cd44c; }
   /* RELATION (ADP/CCONJ/SCONJ/DET/PART): gray dashed straight wire */
-  #wires path.relation { stroke: #8a8a8a; stroke-dasharray: 2 2; }
-  #wires rect.relation-box { stroke: #8a8a8a; stroke-dasharray: 2 1.5; fill: #8a8a8a; }
+  #wires path.relation { stroke: #8a8a8a; stroke-dasharray: 4 4; }
+  #wires rect.relation-box { stroke: #8a8a8a; stroke-dasharray: 4 3; fill: #8a8a8a; }
   #wires circle.relation-port { stroke: #8a8a8a; fill: #8a8a8a; }
 
   /* === Category isolation: legend buttons toggle data-focus-cat on body.
@@ -146,6 +146,7 @@
   body[data-focus-cat="RELATION"] #wires path.relation,
   body[data-focus-cat="RELATION"] #wires rect.relation-box,
   body[data-focus-cat="RELATION"] #wires circle.relation-port { opacity: 1; }
+
   .caption {
     position: absolute;
     pointer-events: none;
@@ -200,6 +201,10 @@
   <button class="row" data-cat="ACTION"><span class="swatch act"></span><span class="label">ACTION</span><span class="upos">verb · aux</span></button>
   <button class="row" data-cat="QUALITY"><span class="swatch qua"></span><span class="label">QUALITY</span><span class="upos">adj · adv</span></button>
   <button class="row" data-cat="RELATION"><span class="swatch rel"></span><span class="label">RELATION</span><span class="upos">adp · conj · det · part</span></button>
+  <button class="row" id="freezeBtn" style="margin-top: 6px;">
+    <span class="swatch" style="background: transparent; color: #444; border-color: #444;"></span>
+    <span class="label">FREEZE</span><span class="upos">snapshot · all-pairs</span>
+  </button>
 </div>
 <div id="stats"></div>
 <div id="start"><button id="startBtn">시작</button></div>
@@ -224,9 +229,13 @@ const TRACK_LAYERS = [
   { name: "t_ja", tier: "any", volume: 0.025, captionClass: "caption micro", lang: "ja" },
   { name: "t_ar", tier: "any", volume: 0.025, captionClass: "caption micro", lang: "ar" },
   { name: "t_no", tier: "any", volume: 0.025, captionClass: "caption micro", lang: "no" },
+  // Silent visual-only main-size track.
+  { name: "sm_any", tier: "any", silent: true, volume: 0, captionClass: "caption main" },
   // Silent visual-only sub-size tracks.
   { name: "ss_en", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "en" },
   { name: "ss_ar", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "ar" },
+  { name: "ss_no", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "no" },
+  { name: "ss_ja", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "ja" },
   // Silent micro tracks.
   { name: "s_en", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "en" },
   { name: "s_zh", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "zh" },
@@ -234,6 +243,9 @@ const TRACK_LAYERS = [
   { name: "s_ja", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "ja" },
   { name: "s_no", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "no" },
   { name: "s_ar", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "ar" },
+  { name: "s_zh2", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "zh" },
+  { name: "s_ko2", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "ko" },
+  { name: "s_en2", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "en" },
 ];
 
 // Per-language playback boost. KsponSpeech is recorded a touch quieter than
@@ -260,6 +272,11 @@ let loudClips = [];   // top half by RMS
 let quietClips = [];  // bottom half by RMS
 const stage = document.getElementById("stage");
 const activeClipFiles = new Set();  // currently-playing clip files across all tracks
+
+// Global pause: when true, no new clips are scheduled, audio is paused, and
+// every animation (caption slide, wire enter/exit, dashoffset) holds in place.
+let frozen = false;
+const liveAudios = new Set();   // every active <audio> element (for pause/resume)
 
 function buildTierPools() {
   const sorted = clips.slice().sort((a, b) => (a.rms || 0) - (b.rms || 0));
@@ -620,7 +637,22 @@ let charLoopRunning = false;
 function startCharLoop() {
   if (charLoopRunning) return;
   charLoopRunning = true;
+  let lastNow = 0;
   function tick(now) {
+    // While frozen, hold every char animation by sliding its start/times
+    // forward by the elapsed delta. When we unfreeze, animations pick up
+    // exactly where they left off.
+    if (frozen) {
+      const dt = lastNow ? (now - lastNow) : 0;
+      for (const job of charJobs) {
+        job.startAt += dt;
+        for (let k = job.next; k < job.times.length; k++) job.times[k] += dt;
+      }
+      lastNow = now;
+      requestAnimationFrame(tick);
+      return;
+    }
+    lastNow = now;
     for (let i = charJobs.length - 1; i >= 0; i--) {
       const job = charJobs[i];
       while (job.next < job.spans.length && now >= job.times[job.next]) {
@@ -628,14 +660,12 @@ function startCharLoop() {
         if (job.action === "on") span.classList.add("on");
         else if (job.action === "off") span.classList.remove("on");
         else if (job.action === "off-left") {
-          // Slide out: remove .on so it stops being at center, add .off-left to fly to the left.
           span.classList.remove("on");
           span.classList.add("off-left");
         }
         job.next++;
       }
       if (job.onProgress) {
-        // Time-based progress (smooth) rather than discrete char count
         const t = (now - job.startAt) / job.duration;
         job.onProgress(Math.max(0, Math.min(1, t)));
       }
@@ -703,6 +733,12 @@ class Track {
 
   // Silent track: only show captions (slide in/out using clip duration), no audio.
   _playSilentOnce() {
+    if (frozen) {
+      // While frozen we don't start new clips, but we do want this track to
+      // resume on its own when freeze releases -- poll lightly until then.
+      setTimeout(() => this._playSilentOnce(), 200);
+      return;
+    }
     const clip = pickRandomUnique(this.layer.tier, this.layer.lang);
     activeClipFiles.add(clip.file);
     let released = false;
@@ -733,11 +769,16 @@ class Track {
   }
 
   _playOnce() {
+    if (frozen) {
+      setTimeout(() => this._playOnce(), 200);
+      return;
+    }
     const clip = pickRandomUnique(this.layer.tier, this.layer.lang);
     activeClipFiles.add(clip.file);
     const audio = new Audio(clip.file);
     audio.volume = clampVol((this.layer.volume || 0) * (LANG_BOOST[clip.lang] || 1));
     audio.preload = "auto";
+    liveAudios.add(audio);
 
     let scheduledNext = false;
     let captionExiting = false;
@@ -757,6 +798,7 @@ class Track {
       audio.removeEventListener("timeupdate", onTimeUpdate);
       audio.removeEventListener("ended", onEnded);
       audio.removeEventListener("error", onError);
+      liveAudios.delete(audio);
       try {
         audio.pause();
         audio.src = "";
@@ -890,7 +932,6 @@ function startPianoAmbient() {
     const dur = 2.0 + Math.random() * 2.5;
     const vel = 0.10 + Math.random() * 0.12;
     pianoNote(freq, now + 0.05, dur, vel);
-    // Random gap 1.2 ~ 4.0 seconds (sparser than before -> fewer audio nodes per second)
     const gap = 1.2 + Math.random() * 2.8;
     setTimeout(scheduleNext, gap * 1000);
   }
@@ -910,6 +951,7 @@ const WIRE_EXIT_MS  = 352;
 
 function startWireLoop() {
   const svg = document.getElementById("wires");
+  let wireLastTickNow = 0;   // last tick timestamp (used to slip phase clocks while frozen)
   function syncViewBox() {
     svg.setAttribute("viewBox", `0 0 ${window.innerWidth} ${window.innerHeight}`);
     svg.setAttribute("width", window.innerWidth);
@@ -1247,6 +1289,18 @@ function startWireLoop() {
            `${end.x.toFixed(1)} ${end.y.toFixed(1)}`;
   }
   function tick(now) {
+    // While frozen, hold every wire animation in place and advance phase
+    // start times by the elapsed delta so animations resume seamlessly.
+    if (frozen) {
+      const dt = wireLastTickNow ? (now - wireLastTickNow) : 0;
+      if (dt > 0) {
+        for (const [, rec] of wires) rec.phaseStartedAt += dt;
+      }
+      wireLastTickNow = now;
+      return;
+    }
+    wireLastTickNow = now;
+
     for (const cat of DRAWN_CATS) {
       boxInUse[cat] = 0;
       boxInUse[cat + "_port"] = 0;
@@ -1272,6 +1326,10 @@ function startWireLoop() {
       const chs = w.querySelectorAll(".ch");
       const chsOn = w.querySelectorAll(".ch.on");
       if (chsOn.length === 0) continue;
+      // Skip words whose caption has begun sliding out -- any .ch.off-left
+      // means we're past peak visibility and anchors should release so the
+      // wires don't trail to a fading position.
+      if (w.querySelector(".ch.off-left")) continue;
       const cap = w.closest(".caption");
       if (!cap) continue;
       const capId = cap.dataset.cap;
@@ -1381,85 +1439,103 @@ function startWireLoop() {
 
     // 3. Walk anchor pairs, mark which keys are alive this frame.
     const aliveKeys = new Set();
-    for (const cat of DRAWN_CATS) {
-      const pts = buckets[cat];
-      if (pts.length < 2) continue;
-      pts.sort((a, b) => (a.capId - b.capId) || (a.wordIdx - b.wordIdx));
-      const build = builders[cat];
-      for (let i = 0; i < pts.length - 1; i++) {
-        const a = pts[i], b = pts[i+1];
-        const sideA = chooseSide(a, b);
-        const sideB = chooseSide(b, a);
-        const start = a[sideA], end = b[sideB];
-        const key = pairKey(cat, a, b);
-        // Deterministic jog: same pair -> same offset, no jitter when other
-        // pairs reorder around it.
-        const jog = hashStr(key) % 5;
-        const d = build(a, b, jog, start, end, sideA, sideB);
-        aliveKeys.add(key);
 
-        let rec = wires.get(key);
-        if (!rec) {
-          // New pair -> create path + per-pair gradient, start "enter".
-          const grad = makeGradient(cat);
-          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-          path.setAttribute("class", CAT_CLASS[cat]);
-          path.setAttribute("d", d);
-          // Override CSS `stroke` so the gradient drives the colour.
-          path.style.stroke = `url(#${grad.id})`;
-          svg.appendChild(path);
-          rec = {
-            path, cat, grad, phase: "enter", phaseStartedAt: now,
-            d, length: 0, lastOffset: -1, gradSig: "",
-          };
-          rec.length = path.getTotalLength() || 1;
-          path.style.strokeDasharray = rec.length;
-          path.style.strokeDashoffset = rec.length;
-          rec.lastOffset = rec.length;
-          wires.set(key, rec);
-        } else if (rec.phase === "live") {
-          if (rec.d !== d) {
-            rec.path.setAttribute("d", d);
-            rec.d = d;
-            rec.length = rec.path.getTotalLength() || rec.length;
+    function emitWire(cat, a, b) {
+      const sideA = chooseSide(a, b);
+      const sideB = chooseSide(b, a);
+      const start = a[sideA], end = b[sideB];
+      const key = pairKey(cat, a, b);
+      const jog = hashStr(key) % 5;
+      const d = builders[cat](a, b, jog, start, end, sideA, sideB);
+      aliveKeys.add(key);
+
+      let rec = wires.get(key);
+      if (!rec) {
+        const grad = makeGradient(cat);
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("class", CAT_CLASS[cat]);
+        path.setAttribute("d", d);
+        path.style.stroke = `url(#${grad.id})`;
+        svg.appendChild(path);
+        rec = {
+          path, cat, grad, phase: "enter", phaseStartedAt: now,
+          d, length: 0, lastOffset: -1, gradSig: "",
+        };
+        rec.length = path.getTotalLength() || 1;
+        path.style.strokeDasharray = rec.length;
+        path.style.strokeDashoffset = rec.length;
+        rec.lastOffset = rec.length;
+        wires.set(key, rec);
+      } else if (rec.phase === "live") {
+        if (rec.d !== d) {
+          rec.path.setAttribute("d", d);
+          rec.d = d;
+          rec.length = rec.path.getTotalLength() || rec.length;
+          // Live state: replace single-dash with the CSS-defined pattern
+          // (or full-line for non-dashed categories) by clearing the inline
+          // dasharray so the CSS rule wins.
+          if (rec.cat === "RELATION") {
+            rec.path.style.strokeDasharray = "";    // CSS provides "4 4"
+          } else {
             rec.path.style.strokeDasharray = rec.length;
-            rec.path.style.strokeDashoffset = 0;
-            rec.lastOffset = 0;
           }
-        } else if (rec.phase === "exit") {
-          rec.phase = "enter";
+          rec.path.style.strokeDashoffset = 0;
+          rec.lastOffset = 0;
+        }
+      } else if (rec.phase === "exit") {
+        rec.phase = "enter";
+        // For RELATION, when the wire is "live" the inline dasharray is
+        // empty so we need to reinstate the single-dash trick to animate
+        // exit consistently. Easier: just snap into the next enter from 0.
+        if (rec.cat === "RELATION") {
+          rec.path.style.strokeDasharray = rec.length;
+          rec.path.style.strokeDashoffset = 0;
+          rec.lastOffset = 0;
+          rec.phaseStartedAt = now;   // restart enter from full
+        } else {
           const remaining = parseFloat(rec.path.style.strokeDashoffset) || 0;
           const ratio = remaining / rec.length;
           const target = 1 - ratio;
           const t = 1 - Math.cbrt(1 - target);
           rec.phaseStartedAt = now - t * WIRE_ENTER_MS;
         }
+      }
 
-        // Steer the gradient. Word _finalRect is cached, so the same pair
-        // produces identical gradient coords every frame -- skip setAttribute
-        // unless something actually changed.
-        const x1 = start.x.toFixed(1), y1 = start.y.toFixed(1);
-        const x2 = end.x.toFixed(1),   y2 = end.y.toFixed(1);
-        const a0 = strokeAlphaFor(a.fillOpacity).toFixed(2);
-        const a1 = strokeAlphaFor(b.fillOpacity).toFixed(2);
-        const sig = `${x1}|${y1}|${x2}|${y2}|${a0}|${a1}`;
-        if (rec.gradSig !== sig) {
-          rec.grad.el.setAttribute("x1", x1);
-          rec.grad.el.setAttribute("y1", y1);
-          rec.grad.el.setAttribute("x2", x2);
-          rec.grad.el.setAttribute("y2", y2);
-          rec.grad.s0.setAttribute("stop-opacity", a0);
-          rec.grad.s1.setAttribute("stop-opacity", a1);
-          rec.gradSig = sig;
-        }
+      const x1 = start.x.toFixed(1), y1 = start.y.toFixed(1);
+      const x2 = end.x.toFixed(1),   y2 = end.y.toFixed(1);
+      const a0 = strokeAlphaFor(a.fillOpacity).toFixed(2);
+      const a1 = strokeAlphaFor(b.fillOpacity).toFixed(2);
+      const sig = `${x1}|${y1}|${x2}|${y2}|${a0}|${a1}`;
+      if (rec.gradSig !== sig) {
+        rec.grad.el.setAttribute("x1", x1);
+        rec.grad.el.setAttribute("y1", y1);
+        rec.grad.el.setAttribute("x2", x2);
+        rec.grad.el.setAttribute("y2", y2);
+        rec.grad.s0.setAttribute("stop-opacity", a0);
+        rec.grad.s1.setAttribute("stop-opacity", a1);
+        rec.gradSig = sig;
+      }
 
-        a.usedPorts.add(sideA);
-        b.usedPorts.add(sideB);
+      a.usedPorts.add(sideA);
+      b.usedPorts.add(sideB);
+    }
+
+    // Normal mode: chain + sparse cross-links.
+    for (const cat of DRAWN_CATS) {
+      const pts = buckets[cat];
+      if (pts.length < 2) continue;
+      pts.sort((a, b) => (a.capId - b.capId) || (a.wordIdx - b.wordIdx));
+      for (let i = 0; i < pts.length - 1; i++) emitWire(cat, pts[i], pts[i+1]);
+      for (let i = 0; i < pts.length - 2; i++) {
+        const a = pts[i], b = pts[i+2];
+        const k = `cross|${a.capId}-${a.wordIdx}|${b.capId}-${b.wordIdx}`;
+        if ((hashStr(k) % 3) === 0) emitWire(cat, a, b);
       }
     }
 
-    // 4. Animate dashoffset based on phase. d/length are frozen during
-    //    enter/exit so the dash math stays valid.
+    // 4. Animate enter/exit via dashoffset. When enter completes and the wire
+    //    transitions to "live", RELATION switches to the CSS dash pattern so
+    //    the wire reads as dotted; other categories stay solid.
     for (const [key, rec] of wires) {
       const path = rec.path;
       const len = rec.length;
@@ -1470,6 +1546,11 @@ function startWireLoop() {
         if (t >= 1) {
           rec.phase = "live";
           offset = 0;
+          if (rec.cat === "RELATION") {
+            // Drop the single-dash trick -- let CSS "4 4" pattern show.
+            path.style.strokeDasharray = "";
+            rec.lastOffset = -1;   // invalidate cache so live writes don't re-set it
+          }
         }
       } else if (rec.phase === "exit") {
         const t = Math.min(1, (now - rec.phaseStartedAt) / WIRE_EXIT_MS);
@@ -1480,11 +1561,14 @@ function startWireLoop() {
           wires.delete(key);
           continue;
         }
+        if (rec.cat === "RELATION" && !rec.path.style.strokeDasharray) {
+          // We were live (no inline dasharray). Reinstate the single-dash
+          // trick so dashoffset can shrink the visible part.
+          path.style.strokeDasharray = rec.length;
+        }
       } else {
         offset = 0;
       }
-      // Only write if the offset actually changed; in "live" this is always 0
-      // so subsequent frames are zero-cost.
       if (rec.lastOffset !== offset) {
         path.style.strokeDashoffset = offset;
         rec.lastOffset = offset;
@@ -1492,11 +1576,13 @@ function startWireLoop() {
     }
 
     // 5. Any wire still in `wires` but not in aliveKeys -> start exit phase.
-    for (const [key, rec] of wires) {
-      if (rec.phase === "exit") continue;
-      if (!aliveKeys.has(key)) {
-        rec.phase = "exit";
-        rec.phaseStartedAt = now;
+    {
+      for (const [key, rec] of wires) {
+        if (rec.phase === "exit") continue;
+        if (!aliveKeys.has(key)) {
+          rec.phase = "exit";
+          rec.phaseStartedAt = now;
+        }
       }
     }
 
@@ -1583,26 +1669,39 @@ async function main() {
     });
   });
 
-  // Legend buttons toggle category isolation: click once to highlight, click
-  // the same button again (or another) to switch / clear. A short glitch
-  // flash is fired on every change.
-  document.querySelectorAll("#legend button.row").forEach(btn => {
+  // Legend buttons toggle category isolation. The freeze button is handled
+  // separately below.
+  document.querySelectorAll("#legend button.row[data-cat]").forEach(btn => {
     btn.addEventListener("click", () => {
       const cat = btn.dataset.cat;
       const cur = document.body.dataset.focusCat;
-      document.querySelectorAll("#legend button.row").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll("#legend button.row[data-cat]").forEach(b => b.classList.remove("active"));
       if (cur === cat) {
         delete document.body.dataset.focusCat;
       } else {
         document.body.dataset.focusCat = cat;
         btn.classList.add("active");
       }
-      // Re-trigger the flash animation by removing then re-adding the class.
       document.body.classList.remove("focus-flash");
-      // Force a reflow so the animation restarts even on repeated clicks.
       void document.body.offsetWidth;
       document.body.classList.add("focus-flash");
     });
+  });
+
+  // Freeze toggle: stage 1 (settling) lets the in-flight captions/wires
+  // finish naturally; stage 2 (boxes) shows boxes only, fading in by
+  // Freeze toggle: hard pause/resume. Audio stops, every animation
+  // (caption slide, wire enter/exit, dashoffset) holds in place. Piano
+  // ambient keeps playing.
+  const freezeBtn = document.getElementById("freezeBtn");
+  freezeBtn.addEventListener("click", () => {
+    frozen = !frozen;
+    freezeBtn.classList.toggle("active", frozen);
+    for (const a of liveAudios) {
+      try { frozen ? a.pause() : a.play(); } catch (e) {}
+    }
+    // Tracks resume on their own: their reschedule callbacks self-poll
+    // every 200ms while frozen and the first non-frozen poll runs the clip.
   });
 }
 
