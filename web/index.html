@@ -1,0 +1,1340 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Overlapping Voices</title>
+<style>
+  :root { color-scheme: light; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; background: #ffffff;
+    color: #111; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Apple SD Gothic Neo", sans-serif;
+    overflow: hidden;
+  }
+  #stage {
+    position: fixed; inset: 0;
+  }
+  /* Film-grain overlay: a single tiled SVG noise image composited via blend mode.
+     The SVG is generated once and cached by the browser, so the GPU compositor
+     handles the rest -- effectively zero CPU/memory cost. */
+  #start {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: #ffffff; z-index: 10;
+  }
+  #start button {
+    background: transparent; color: #111;
+    border: 1px solid #bbb; padding: 14px 28px; border-radius: 999px;
+    font-size: 16px; cursor: pointer; letter-spacing: 0.05em;
+  }
+  #start button:hover { border-color: #555; }
+  #stats {
+    position: fixed; bottom: 8px; right: 8px;
+    font: 11px/1.4 monospace; color: #888;
+    background: rgba(255,255,255,0.85);
+    padding: 4px 8px; border-radius: 4px;
+    z-index: 20; pointer-events: none;
+    white-space: pre;
+  }
+  #wires {
+    position: fixed;
+    left: 0; top: 0;
+    width: 100vw; height: 100vh;
+    pointer-events: none;
+    z-index: 5;
+    overflow: visible;
+  }
+  #wires path, #wires rect, #wires ellipse {
+    fill: none;
+    stroke-width: 0.22;
+    stroke-opacity: 0.85;
+  }
+  /* ENTITY (NOUN/PROPN/PRON): hard right-angle traces, crisp edges, magenta */
+  #wires path.entity { stroke: #ff00ff; shape-rendering: crispEdges; }
+  #wires rect.entity-box { stroke: #ff00ff; }
+  #wires circle.entity-port { stroke: #ff00ff; fill: #ff00ff; }
+  /* ACTION (VERB/AUX): orthogonal but with large rounded corners, cyan */
+  #wires path.action { stroke: #00e5ff; stroke-linejoin: round; stroke-linecap: round; }
+  #wires rect.action-box { stroke: #00e5ff; }
+  #wires circle.action-port { stroke: #00e5ff; fill: #00e5ff; }
+  /* QUALITY (ADJ/ADV): smooth bezier curves, green-lime */
+  #wires path.quality { stroke: #4cd44c; stroke-linecap: round; }
+  #wires ellipse.quality-box { stroke: #4cd44c; }
+  #wires circle.quality-port { stroke: #4cd44c; fill: #4cd44c; }
+  /* RELATION (ADP/CCONJ/SCONJ/DET/PART): gray dashed straight wire */
+  #wires path.relation { stroke: #8a8a8a; stroke-dasharray: 2 2; }
+  #wires rect.relation-box { stroke: #8a8a8a; stroke-dasharray: 2 1.5; }
+  #wires circle.relation-port { stroke: #8a8a8a; fill: #8a8a8a; }
+  .caption {
+    position: absolute;
+    pointer-events: none;
+    max-width: min(340px, 32vw);
+    word-break: keep-all;
+    overflow-wrap: break-word;
+    line-height: 1.4;
+    transition: font-size 320ms ease-out, max-width 320ms ease-out, color 320ms linear, opacity 320ms linear;
+  }
+  .caption.main {
+    font-size: 17px; font-weight: 600; color: #000; opacity: 1;
+    max-width: min(340px, 32vw);
+  }
+  .caption.semi {
+    font-size: 13px; font-weight: 500; color: #222; opacity: 0.92;
+    max-width: min(260px, 26vw);
+  }
+  .caption.sub {
+    font-size: 11px; font-weight: 400; color: #444; opacity: 0.85;
+    max-width: min(220px, 22vw);
+  }
+  .caption.sub.deeper {
+    font-size: 9px; color: #777; opacity: 0.7;
+    max-width: min(180px, 18vw);
+  }
+  .caption.micro {
+    font-size: 7px; color: #aaa; opacity: 0.55;
+    max-width: min(140px, 14vw);
+    font-weight: 400;
+  }
+  .ch {
+    display: inline-block;
+    opacity: 0;
+    transform: translateX(20vw);
+    transition: opacity var(--slide-ms,400ms) ease-out, transform var(--slide-ms,400ms) ease-out;
+  }
+  .ch.on { opacity: 1; transform: translateX(0); }
+  .ch.off-left { opacity: 0; transform: translateX(-20vw); }
+  .word {
+    display: inline-block;
+    white-space: nowrap;
+  }
+  .space { display: inline-block; width: 0.3em; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<svg id="wires" xmlns="http://www.w3.org/2000/svg"></svg>
+<video id="cam" autoplay muted playsinline style="display:none"></video>
+<div id="stats"></div>
+<div id="start"><button id="startBtn">시작</button></div>
+<script>
+// Three tiers: main (large + loud), sub (medium), micro (tiny + quiet).
+const TRACK_LAYERS = [
+  // 2 main tracks
+  // 4 main slots rotate the languages so each one shows up in main equally.
+  // Each track always picks from its own `lang` -> en/ja/ko/zh appear in turn.
+  { name: "m_en", tier: "loud", volume: 0.85, captionClass: "caption main", lang: "en" },
+  { name: "m_ja", tier: "loud", volume: 0.85, captionClass: "caption main", lang: "ja" },
+  // sub tracks: medium presence, distributed across the remaining 3 langs
+  { name: "u_zh", tier: "any",   volume: 0.30, captionClass: "caption sub", lang: "zh" },
+  { name: "u_ko", tier: "any",   volume: 0.30, captionClass: "caption sub", lang: "ko" },
+  { name: "u_en", tier: "any",   volume: 0.28, captionClass: "caption sub", lang: "en" },
+  { name: "u_ja", tier: "quiet", volume: 0.25, captionClass: "caption sub", lang: "ja" },
+  { name: "u_zh2",tier: "quiet", volume: 0.23, captionClass: "caption sub", lang: "zh" },
+  // micro tracks: faint backdrop
+  { name: "t_ko", tier: "any",   volume: 0.06, captionClass: "caption micro", lang: "ko" },
+  { name: "t_en", tier: "quiet", volume: 0.05, captionClass: "caption micro", lang: "en" },
+  // silent micro captions, one per language for visual diversity
+  { name: "s_ja", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "ja" },
+  { name: "s_zh", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "zh" },
+  { name: "s_ko", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "ko" },
+];
+
+const PRELAP_SEC = 1.5;        // 한 트랙 내에서 다음 클립을 이전 끝나기 1.5초 전에 시작 (강한 중첩)
+const SAFE_MARGIN_PX = 16;
+const TRACK_START_STAGGER_MS = 800;
+const SLIDE_LEAD_MS = 400;
+const SLIDE_OUT_MS = 400;
+
+// Common Voice / KsponSpeech clips usually have ~0.3s of silence at the start and end.
+// Treat the actual speech window as [LEAD_SILENCE_MS, duration - TRAIL_SILENCE_MS]
+// so captions sync to the spoken portion, not the file boundaries.
+const LEAD_SILENCE_MS = 300;
+const TRAIL_SILENCE_MS = 300;
+
+let clips = [];
+let loudClips = [];   // top half by RMS
+let quietClips = [];  // bottom half by RMS
+const stage = document.getElementById("stage");
+const activeClipFiles = new Set();  // currently-playing clip files across all tracks
+
+function buildTierPools() {
+  const sorted = clips.slice().sort((a, b) => (a.rms || 0) - (b.rms || 0));
+  const split = Math.floor(sorted.length / 2);
+  quietClips = sorted.slice(0, split);
+  loudClips = sorted.slice(split);
+  console.log(`tiers: quiet=${quietClips.length}, loud=${loudClips.length}`);
+}
+
+function pickRandom(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function pickRandomUnique(tier, lang) {
+  // Pick from the tier's pool (loud / quiet / any), optionally restricted to
+  // a single language so each track can stake out one of en/zh/ko/ja.
+  let pool;
+  if (tier === "loud")        pool = loudClips;
+  else if (tier === "quiet")  pool = quietClips;
+  else                         pool = clips;
+  if (lang) pool = pool.filter(c => c.lang === lang);
+  let available = pool.filter(c => !activeClipFiles.has(c.file));
+  if (available.length === 0) available = pool;
+  if (available.length === 0) {
+    // Last-resort fallback: any clip in the language (across tiers), then anything.
+    available = lang ? clips.filter(c => c.lang === lang) : clips;
+  }
+  if (available.length === 0) available = clips;
+  return available[Math.floor(Math.random() * available.length)];
+}
+
+// === Lightweight POS tagger ===
+// Goal isn't linguistic correctness -- it's stable bucketing so wires connect
+// the same kind of word across different captions. Three buckets: subj / pred / obj.
+const EN_PRONOUNS = new Set(["i","you","we","they","he","she","it","there","this","that","these","those","who","what"]);
+const EN_VERBS = new Set([
+  "is","am","are","was","were","be","been","being",
+  "have","has","had","having",
+  "do","does","did","done","doing",
+  "go","goes","went","gone","going",
+  "get","gets","got","gotten","getting",
+  "make","makes","made","making",
+  "take","takes","took","taken","taking",
+  "say","says","said","saying",
+  "see","sees","saw","seen","seeing",
+  "know","knows","knew","known","knowing",
+  "think","thinks","thought","thinking",
+  "want","wants","wanted","wanting",
+  "give","gives","gave","given","giving",
+  "find","finds","found","finding",
+  "tell","tells","told","telling",
+  "ask","asks","asked","asking",
+  "work","works","worked","working",
+  "seem","seems","seemed",
+  "feel","feels","felt","feeling",
+  "try","tries","tried","trying",
+  "leave","leaves","left","leaving",
+  "call","calls","called","calling",
+  "need","needs","needed","needing",
+  "become","becomes","became","becoming",
+  "put","puts","putting",
+  "mean","means","meant","meaning",
+  "keep","keeps","kept","keeping",
+  "let","lets","letting",
+  "begin","begins","began","begun",
+  "help","helps","helped","helping",
+  "talk","talks","talked","talking",
+  "turn","turns","turned","turning",
+  "start","starts","started","starting",
+  "show","shows","showed","shown",
+  "hear","hears","heard","hearing",
+  "play","plays","played","playing",
+  "run","runs","ran","running",
+  "move","moves","moved","moving",
+  "live","lives","lived","living",
+  "believe","believes","believed",
+  "bring","brings","brought","bringing",
+  "happen","happens","happened",
+  "write","writes","wrote","written",
+  "sit","sits","sat","sitting",
+  "stand","stands","stood","standing",
+  "lose","loses","lost","losing",
+  "pay","pays","paid","paying",
+  "meet","meets","met","meeting",
+  "include","includes","included",
+  "continue","continues","continued",
+  "set","sets","setting",
+  "learn","learns","learned",
+  "change","changes","changed",
+  "lead","leads","led","leading",
+  "understand","understands","understood",
+  "watch","watches","watched","watching",
+  "follow","follows","followed",
+  "stop","stops","stopped","stopping",
+  "create","creates","created",
+  "speak","speaks","spoke","spoken",
+  "read","reads","reading",
+  "spend","spends","spent",
+  "grow","grows","grew","grown",
+  "open","opens","opened","opening",
+  "walk","walks","walked","walking",
+  "win","wins","won","winning",
+  "offer","offers","offered",
+  "remember","remembers","remembered",
+  "love","loves","loved","loving",
+  "consider","considers","considered",
+  "appear","appears","appeared",
+  "buy","buys","bought","buying",
+  "wait","waits","waited","waiting",
+  "serve","serves","served","serving",
+  "die","dies","died","dying",
+  "send","sends","sent","sending",
+  "build","builds","built","building",
+  "stay","stays","stayed","staying",
+  "fall","falls","fell","fallen",
+  "cut","cuts","cutting",
+  "reach","reaches","reached",
+  "kill","kills","killed","killing",
+  "raise","raises","raised","raising",
+  "introduce","introduces","introduced",
+  "wanna","gonna","gotta",
+]);
+const EN_FUNCTION = new Set([
+  "the","a","an","of","in","on","at","to","for","with","by","from","as","into","onto","about","over","under","between","through",
+  "and","or","but","so","if","then","than","because","while","when","where","why","how",
+  "not","no","yes",
+  "my","your","his","her","its","our","their",
+  "me","him","them","us",
+  "very","just","also","too","only","still","really","here","there","now","again","always","never","often","sometimes","yeah","okay","ok","well","oh","uh","um",
+]);
+const KO_PARTICLES_SUBJ = ["은","는","이","가","께서","에서는"];
+const KO_PARTICLES_OBJ  = ["을","를"];
+const KO_PARTICLES_OTHER = ["에","에서","으로","로","와","과","의","도","만","부터","까지","이나","나","랑","이랑","처럼","보다","마저","조차","한테","에게"];
+const KO_VERB_ENDINGS = [
+  "습니다","ㅂ니다","어요","아요","해요","예요","이에요","에요","입니다",
+  "다","ㄴ다","는다","했다","됐다","된다","한다","간다","온다","왔다","갔다",
+  "고","면","서","지만","는데","니까","아서","어서","려고","러","면서",
+  "음","ㅁ","기",
+  "었","았","겠","겠다","았다","었다",
+];
+
+function endsWithAny(word, list) {
+  for (const s of list) if (word.endsWith(s)) return s;
+  return null;
+}
+
+function classifyWord(word, isFirstContent, lang) {
+  const w = word.toLowerCase().replace(/[.,!?;:'"()\-]/g, "");
+  if (!w) return null;
+  if (lang === "ko") {
+    // Korean: rely on particles / verb endings
+    if (endsWithAny(w, KO_PARTICLES_SUBJ)) return "subj";
+    if (endsWithAny(w, KO_PARTICLES_OBJ)) return "obj";
+    if (endsWithAny(w, KO_VERB_ENDINGS))  return "pred";
+    if (endsWithAny(w, KO_PARTICLES_OTHER)) return null;
+    return null;
+  }
+  // English
+  if (EN_FUNCTION.has(w)) return null;
+  if (EN_VERBS.has(w)) return "pred";
+  if (EN_PRONOUNS.has(w)) return "subj";
+  // First content word that isn't a verb/function -> guess subject
+  if (isFirstContent) return "subj";
+  // Heuristic: words ending in -ing / -ed often verb-ish
+  if (/(ing|ed)$/.test(w) && w.length > 4) return "pred";
+  // Otherwise treat as object (catch-all noun-ish bucket)
+  return "obj";
+}
+
+// Build a caption DOM. If `clip.tokens` is present (Stanza-tagged), each
+// token's `cat` (ENTITY/ACTION/QUALITY/RELATION/OTHER) is attached as
+// `data-cat` on its <span class="word">. Otherwise we fall back to the old
+// language-specific regex tagger and emit subj/pred/obj as data-cat.
+function makeCaptionEl(clip, layerClass) {
+  const text = clip.text;
+  const lang = clip.lang;
+  const el = document.createElement("div");
+  el.className = layerClass;
+
+  // --- Path 1: pre-tagged tokens from clips.json ---
+  if (Array.isArray(clip.tokens) && clip.tokens.length) {
+    let cursor = 0;
+    for (const t of clip.tokens) {
+      const surf = t.surf || "";
+      if (!surf) continue;
+      // Find this surface form in the original text starting at cursor.
+      // Stanza often retokenises (drops/changes whitespace), so we search
+      // the next occurrence rather than assuming exact alignment.
+      const found = text.indexOf(surf, cursor);
+      if (found > cursor) {
+        // Emit raw chars in the gap (whitespace, punctuation that stanza
+        // didn't tokenise into a word) as a "space" or untagged word.
+        const gap = text.slice(cursor, found);
+        appendGap(el, gap);
+      }
+      const word = document.createElement("span");
+      word.className = "word";
+      if (t.cat && t.cat !== "OTHER") {
+        word.dataset.cat = t.cat;
+      }
+      for (const ch of Array.from(surf)) {
+        const span = document.createElement("span");
+        span.className = "ch";
+        span.textContent = ch;
+        word.appendChild(span);
+      }
+      el.appendChild(word);
+      cursor = (found >= 0 ? found : cursor) + surf.length;
+    }
+    // trailing gap
+    if (cursor < text.length) appendGap(el, text.slice(cursor));
+    return el;
+  }
+
+  // --- Path 2: fallback tagger (whitespace split + regex rules) ---
+  const tokens = text.split(/(\s+)/);
+  let sawContent = false;
+  for (const tok of tokens) {
+    if (!tok) continue;
+    if (/^\s+$/.test(tok)) {
+      const sp = document.createElement("span");
+      sp.className = "space";
+      el.appendChild(sp);
+      continue;
+    }
+    const word = document.createElement("span");
+    word.className = "word";
+    const isFirstContent = !sawContent;
+    sawContent = true;
+    const pos = classifyWord(tok, isFirstContent, lang);
+    if (pos === "subj") word.dataset.cat = "ENTITY";
+    else if (pos === "pred") word.dataset.cat = "ACTION";
+    else if (pos === "obj")  word.dataset.cat = "QUALITY";
+    for (const c of Array.from(tok)) {
+      const span = document.createElement("span");
+      span.className = "ch";
+      span.textContent = c;
+      word.appendChild(span);
+    }
+    el.appendChild(word);
+  }
+  return el;
+}
+
+function appendGap(el, gap) {
+  if (!gap) return;
+  // Pure whitespace -> compact "space" span (matches old layout).
+  if (/^\s+$/.test(gap)) {
+    const sp = document.createElement("span");
+    sp.className = "space";
+    el.appendChild(sp);
+    return;
+  }
+  // Punctuation/other -> emit chars but no .word wrapper so wires ignore it.
+  for (const ch of Array.from(gap)) {
+    if (/\s/.test(ch)) {
+      const sp = document.createElement("span");
+      sp.className = "space";
+      el.appendChild(sp);
+    } else {
+      const span = document.createElement("span");
+      span.className = "ch";
+      span.textContent = ch;
+      el.appendChild(span);
+    }
+  }
+}
+
+let captionSeq = 0;
+function placeCaption(el) {
+  // Add to stage offscreen first to measure size, then position randomly within safe area
+  el.style.left = "-9999px";
+  el.style.top = "-9999px";
+  stage.appendChild(el);
+  // Sequence id: lets the wire loop pair captions in arrival order so wires
+  // between caption A's subj and caption B's subj are visually distinguishable
+  // from the wires between B and C.
+  el.dataset.cap = String(captionSeq++);
+  const w = el.offsetWidth;
+  const h = el.offsetHeight;
+  const maxX = Math.max(SAFE_MARGIN_PX, window.innerWidth - w - SAFE_MARGIN_PX);
+  const maxY = Math.max(SAFE_MARGIN_PX, window.innerHeight - h - SAFE_MARGIN_PX);
+  const x = SAFE_MARGIN_PX + Math.random() * (maxX - SAFE_MARGIN_PX);
+  const y = SAFE_MARGIN_PX + Math.random() * (maxY - SAFE_MARGIN_PX);
+  el.style.left = `${Math.round(x)}px`;
+  el.style.top = `${Math.round(y)}px`;
+}
+
+// Single RAF-driven scheduler for caption character animations.
+// Replaces hundreds of setTimeout calls per caption with one shared loop.
+const charJobs = [];
+let charLoopRunning = false;
+
+function startCharLoop() {
+  if (charLoopRunning) return;
+  charLoopRunning = true;
+  function tick(now) {
+    for (let i = charJobs.length - 1; i >= 0; i--) {
+      const job = charJobs[i];
+      while (job.next < job.spans.length && now >= job.times[job.next]) {
+        const span = job.spans[job.next];
+        if (job.action === "on") span.classList.add("on");
+        else if (job.action === "off") span.classList.remove("on");
+        else if (job.action === "off-left") {
+          // Slide out: remove .on so it stops being at center, add .off-left to fly to the left.
+          span.classList.remove("on");
+          span.classList.add("off-left");
+        }
+        job.next++;
+      }
+      if (job.onProgress) {
+        // Time-based progress (smooth) rather than discrete char count
+        const t = (now - job.startAt) / job.duration;
+        job.onProgress(Math.max(0, Math.min(1, t)));
+      }
+      if (job.next >= job.spans.length) {
+        if (job.onProgress) job.onProgress(1);
+        if (job.onDone) job.onDone();
+        charJobs.splice(i, 1);
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+function scheduleCharJob(spans, durationMs, action, onDone, onProgress) {
+  if (spans.length === 0) {
+    if (onProgress) onProgress(1);
+    if (onDone) onDone();
+    return;
+  }
+  const startAt = performance.now();
+  const interval = durationMs / spans.length;
+  const times = new Array(spans.length);
+  for (let i = 0; i < spans.length; i++) times[i] = startAt + i * interval;
+  charJobs.push({ spans, times, next: 0, action, onDone, onProgress, startAt, duration: durationMs });
+  startCharLoop();
+}
+
+// Slide-in: characters arrive one after another so that the first char lands
+// at "audio start" and the last lands by the end of the speech.
+// staggerMs = (speechDurMs - SLIDE_LEAD_MS) / max(1, n-1)
+// Each char's transition starts staggerMs apart, all using SLIDE_LEAD_MS duration.
+function slideInChars(el, speechDurMs) {
+  const spans = Array.from(el.querySelectorAll(".ch"));
+  const n = spans.length;
+  if (n === 0) return;
+  el.style.setProperty("--slide-ms", SLIDE_LEAD_MS + "ms");
+  // Spread arrivals across the speech duration. Last arrival = speechDurMs into the future.
+  const totalSpread = Math.max(0, speechDurMs);
+  const stagger = n > 1 ? totalSpread / (n - 1) : 0;
+  // Use the existing RAF char loop. action="on" toggles the .on class, which kicks off
+  // the CSS transition (translateX 40vw -> 0, opacity 0 -> 1).
+  scheduleCharJob(spans, totalSpread, "on", null, null);
+  // The scheduler distributes the toggle across totalSpread ms in n equal steps,
+  // which matches the stagger we want (n steps of stagger ms each).
+}
+
+function slideOutChars(el, totalMs) {
+  const spans = Array.from(el.querySelectorAll(".ch.on"));
+  if (spans.length === 0) { el.remove(); return; }
+  el.style.setProperty("--slide-ms", SLIDE_OUT_MS + "ms");
+  // Apply off-left in the original order (left-to-right) so characters fly out one by one.
+  scheduleCharJob(spans, totalMs, "off-left", () => el.remove(), null);
+}
+
+class Track {
+  constructor(layer) {
+    this.layer = layer;
+  }
+
+  start() {
+    if (this.layer.silent) this._playSilentOnce();
+    else this._playOnce();
+  }
+
+  // Silent track: only show captions (slide in/out using clip duration), no audio.
+  _playSilentOnce() {
+    const clip = pickRandomUnique(this.layer.tier, this.layer.lang);
+    activeClipFiles.add(clip.file);
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      activeClipFiles.delete(clip.file);
+    };
+
+    const dur = clip.duration;
+    const speechDurMs = Math.max(300, dur * 1000 - LEAD_SILENCE_MS - TRAIL_SILENCE_MS);
+
+    const cap = makeCaptionEl(clip, this.layer.captionClass);
+    placeCaption(cap);
+    slideInChars(cap, speechDurMs);
+
+    // Slide out at end of speech window
+    setTimeout(() => {
+      if (cap.isConnected) slideOutChars(cap, speechDurMs / 3);
+    }, LEAD_SILENCE_MS + speechDurMs);
+
+    // Schedule next clip with overlap matching audio tracks
+    const nextDelay = Math.max(800, dur * 1000 - PRELAP_SEC * 1000);
+    setTimeout(() => {
+      release();
+      this._playSilentOnce();
+    }, nextDelay);
+  }
+
+  _playOnce() {
+    const clip = pickRandomUnique(this.layer.tier, this.layer.lang);
+    activeClipFiles.add(clip.file);
+    const audio = new Audio(clip.file);
+    audio.volume = this.layer.volume;
+    audio.preload = "auto";
+
+    let scheduledNext = false;
+    let captionExiting = false;
+    let released = false;
+    let disposed = false;
+    let capRef = null;
+
+    const release = () => {
+      if (released) return;
+      released = true;
+      activeClipFiles.delete(clip.file);
+    };
+
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      audio.removeEventListener("timeupdate", onTimeUpdate);
+      audio.removeEventListener("ended", onEnded);
+      audio.removeEventListener("error", onError);
+      try {
+        audio.pause();
+        audio.src = "";
+        audio.removeAttribute("src");
+        audio.load();
+      } catch (e) {}
+    };
+
+    // We use the manifest duration so we can spawn the caption *before* audio starts.
+    const dur = clip.duration;
+    const speechDurMs = Math.max(300, dur * 1000 - LEAD_SILENCE_MS - TRAIL_SILENCE_MS);
+    const speechEndSec = Math.max(0, dur - TRAIL_SILENCE_MS / 1000);
+
+    const onTimeUpdate = () => {
+      const remaining = dur - audio.currentTime;
+      if (!scheduledNext && remaining <= PRELAP_SEC && remaining > 0) {
+        scheduledNext = true;
+        release();
+        this._playOnce();
+      }
+      // Trigger slide-out when the spoken portion ends (not when the audio file ends).
+      if (!captionExiting && audio.currentTime >= speechEndSec) {
+        captionExiting = true;
+        if (capRef) slideOutChars(capRef, speechDurMs / 3);
+      }
+    };
+
+    const onEnded = () => {
+      if (capRef && capRef.isConnected && !captionExiting) {
+        captionExiting = true;
+        slideOutChars(capRef, speechDurMs / 3);
+      }
+      release();
+      if (!scheduledNext) {
+        scheduledNext = true;
+        this._playOnce();
+      }
+      setTimeout(dispose, 0);
+    };
+
+    const onError = () => {
+      console.warn("audio error", clip.file);
+      release();
+      dispose();
+      setTimeout(() => this._playOnce(), 300);
+    };
+
+    audio.addEventListener("timeupdate", onTimeUpdate);
+    audio.addEventListener("ended", onEnded);
+    audio.addEventListener("error", onError);
+
+    // 1) Spawn caption immediately. Characters start sliding in from the right.
+    //    The first char will arrive at its position SLIDE_LEAD_MS from now.
+    const cap = makeCaptionEl(clip, this.layer.captionClass);
+    placeCaption(cap);
+    capRef = cap;
+    // Slide-in is scheduled across the speech duration so subsequent chars
+    // continue to arrive while the speech is playing.
+    slideInChars(cap, speechDurMs);
+
+    // 2) Schedule audio.play() so that audio's spoken portion begins exactly when the
+    //    first character lands. The first char lands at +SLIDE_LEAD_MS from now,
+    //    and the spoken portion starts at LEAD_SILENCE_MS into the audio file,
+    //    so play() should fire at +(SLIDE_LEAD_MS - LEAD_SILENCE_MS).
+    const audioDelayMs = Math.max(0, SLIDE_LEAD_MS - LEAD_SILENCE_MS);
+    setTimeout(() => {
+      if (disposed) return;
+      const playPromise = audio.play();
+      if (playPromise) playPromise.catch(err => {
+        console.warn("play failed", err);
+        release();
+        dispose();
+        if (capRef && capRef.isConnected) capRef.remove();
+        setTimeout(() => this._playOnce(), 500);
+      });
+    }, audioDelayMs);
+  }
+}
+
+// === Ambient piano background ===
+// C minor pentatonic (a calm, "lo-fi" feeling scale): C, Eb, F, G, Bb across 3 octaves
+const PIANO_FREQS = (() => {
+  const base = [261.63, 311.13, 349.23, 392.00, 466.16]; // C4, Eb4, F4, G4, Bb4
+  const out = [];
+  for (const f of base) out.push(f * 0.5, f, f * 2);
+  return out;
+})();
+
+let audioCtx = null;
+let pianoGain = null;
+
+// Persistent shared filter on the piano bus -> only oscillators are created per-note.
+// Cuts node creation/disconnect work to ~1/3 vs. building the full chain each time.
+let pianoFilter = null;
+
+function pianoNote(freq, when, duration = 2.5, vel = 0.18) {
+  const ctx = audioCtx;
+  const osc = ctx.createOscillator();
+  osc.type = "triangle";
+  osc.frequency.value = freq;
+  const g = ctx.createGain();
+  osc.connect(g).connect(pianoFilter);
+
+  const t0 = when;
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vel, t0 + 0.015);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+
+  osc.start(t0);
+  osc.stop(t0 + duration + 0.05);
+  osc.onended = () => {
+    try { osc.disconnect(); g.disconnect(); } catch (e) {}
+  };
+}
+
+function startPianoAmbient() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  pianoGain = audioCtx.createGain();
+  pianoGain.gain.value = 0.7;
+  pianoFilter = audioCtx.createBiquadFilter();
+  pianoFilter.type = "lowpass";
+  pianoFilter.frequency.value = 1800;
+  pianoFilter.Q.value = 0.5;
+  pianoFilter.connect(pianoGain).connect(audioCtx.destination);
+
+  function scheduleNext() {
+    const now = audioCtx.currentTime;
+    const freq = PIANO_FREQS[Math.floor(Math.random() * PIANO_FREQS.length)];
+    const dur = 2.0 + Math.random() * 2.5;
+    const vel = 0.10 + Math.random() * 0.12;
+    pianoNote(freq, now + 0.05, dur, vel);
+    // Random gap 1.2 ~ 4.0 seconds (sparser than before -> fewer audio nodes per second)
+    const gap = 1.2 + Math.random() * 2.8;
+    setTimeout(scheduleNext, gap * 1000);
+  }
+  scheduleNext();
+}
+
+// === Circuit wires connecting same-category words across captions ===
+// Each frame we walk every visible .word[data-cat], group by category
+// (ENTITY/ACTION/QUALITY), then draw paths linking words in the same bucket.
+// RELATION/OTHER are intentionally not drawn -- they would dominate the screen.
+const CAT_CLASS = { ENTITY: "entity", ACTION: "action", QUALITY: "quality", RELATION: "relation" };
+const DRAWN_CATS = ["ENTITY", "ACTION", "QUALITY", "RELATION"];
+
+// Animation timings for wire entry/exit.
+const WIRE_ENTER_MS = 384;
+const WIRE_EXIT_MS  = 352;
+
+function startWireLoop() {
+  const svg = document.getElementById("wires");
+  function syncViewBox() {
+    svg.setAttribute("viewBox", `0 0 ${window.innerWidth} ${window.innerHeight}`);
+    svg.setAttribute("width", window.innerWidth);
+    svg.setAttribute("height", window.innerHeight);
+  }
+  syncViewBox();
+  window.addEventListener("resize", syncViewBox);
+
+  // Boxes / ports stay in the old "pool by category, index-based" form -- they
+  // attach to single words and follow the word lifecycle (slide-in/out already
+  // animates the word). Wires switch to a pair-keyed map so each connection
+  // gets a stable lifetime for entry/exit dashoffset animation.
+  const boxPool = {
+    ENTITY: [], ACTION: [], QUALITY: [], RELATION: [],
+    ENTITY_port: [], ACTION_port: [], QUALITY_port: [], RELATION_port: [],
+  };
+  let boxInUse = {
+    ENTITY: 0, ACTION: 0, QUALITY: 0, RELATION: 0,
+    ENTITY_port: 0, ACTION_port: 0, QUALITY_port: 0, RELATION_port: 0,
+  };
+
+  // Persistent map of pairKey -> wire record, where the record owns its DOM
+  // <path> for its full lifetime (enter -> live -> exit).
+  // pairKey = `${cat}|${capIdA}-${wordIdxA}|${capIdB}-${wordIdxB}` (sorted).
+  // Phase: "enter" (drawing in), "live" (visible), "exit" (drawing out).
+  const wires = new Map();
+
+  function getRectBox(cat, cls) {
+    const idx = boxInUse[cat]++;
+    let r = boxPool[cat][idx];
+    if (!r) {
+      r = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      r.setAttribute("class", cls);
+      svg.appendChild(r);
+      boxPool[cat][idx] = r;
+    }
+    return r;
+  }
+
+  function getEllipseBox(cat, cls) {
+    const idx = boxInUse[cat]++;
+    let e = boxPool[cat][idx];
+    if (!e) {
+      e = document.createElementNS("http://www.w3.org/2000/svg", "ellipse");
+      e.setAttribute("class", cls);
+      svg.appendChild(e);
+      boxPool[cat][idx] = e;
+    }
+    return e;
+  }
+
+  function getPort(cat) {
+    const key = cat + "_port";
+    const idx = boxInUse[key]++;
+    let c = boxPool[key][idx];
+    if (!c) {
+      c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      c.setAttribute("class", CAT_CLASS[cat] + "-port");
+      c.setAttribute("r", "0.9");
+      svg.appendChild(c);
+      boxPool[key][idx] = c;
+    }
+    return c;
+  }
+
+  function hideExtras() {
+    for (const cat of DRAWN_CATS) {
+      const k = cat + "_port";
+      for (let i = boxInUse[k]; i < boxPool[k].length; i++) {
+        boxPool[k][i].setAttribute("r", "0");
+      }
+    }
+    for (const cat of ["ENTITY","ACTION","RELATION"]) {
+      for (let i = boxInUse[cat]; i < boxPool[cat].length; i++) {
+        boxPool[cat][i].setAttribute("width", "0");
+        boxPool[cat][i].setAttribute("height", "0");
+      }
+    }
+    for (let i = boxInUse.QUALITY; i < boxPool.QUALITY.length; i++) {
+      boxPool.QUALITY[i].setAttribute("rx", "0");
+      boxPool.QUALITY[i].setAttribute("ry", "0");
+    }
+  }
+
+  function pairKey(cat, a, b) {
+    // Order-invariant key so we don't churn when sort order swaps mid-run.
+    const ka = `${a.capId}-${a.wordIdx}`;
+    const kb = `${b.capId}-${b.wordIdx}`;
+    return ka < kb ? `${cat}|${ka}|${kb}` : `${cat}|${kb}|${ka}`;
+  }
+
+  function hashStr(s) {
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+    return Math.abs(h);
+  }
+
+  // === Per-category path builders ===
+  // Each builder receives explicit `start` / `end` ports (chosen by
+  // chooseSide) plus the side names so it can route the wire perpendicular
+  // to the exit side -- e.g. exit "top" means the wire steps upward first.
+
+  // ENTITY: hard right-angle trace, magenta.
+  function buildEntityPath(a, b, jog, start, end, sideA, sideB) {
+    return buildOrthoPath(a, b, jog * 6 - 12, start, end, sideA, sideB);
+  }
+
+  // ACTION: orthogonal trace with rounded corner fillets, cyan.
+  // Same routing as ENTITY but corners are softened with quadratic curves
+  // (a clean arc-like fillet without per-direction sweep math).
+  function buildActionPath(a, b, jog, start, end, sideA, sideB) {
+    return buildRoundedOrthoPath(a, b, jog * 8 - 16, start, end, sideA, sideB);
+  }
+
+  // Orthogonal router that handles all 16 (sideA x sideB) combinations.
+  // Strategy: emit one perpendicular leg out of each box (so wires never
+  // re-enter the box), then connect those two stub endpoints with one or two
+  // perpendicular segments.
+  function buildOrthoPath(a, b, jog, start, end, sideA, sideB) {
+    return polylineToRouted(a, b, jog, start, end, sideA, sideB, /*round=*/false);
+  }
+
+  // Compute the orthogonal route waypoints with both boxes treated as
+  // forbidden zones. Returns a polyline; caller decides L (sharp) vs Q
+  // (rounded). This prevents stubs/midpoints from grazing either rect when
+  // the two anchors sit close together.
+  function planOrthoPolyline(a, b, jog, start, end, sideA, sideB) {
+    const PAD  = 4;     // clearance outside each box
+    const isVertA = (sideA === "top" || sideA === "bottom");
+    const isVertB = (sideB === "top" || sideB === "bottom");
+
+    // No stub: wire steps directly from the box edge into the mid rail.
+    // The "stub" point is just the start/end itself; box avoidance is
+    // handled in the mid rail step below.
+    const stubA = { x: start.x, y: start.y };
+    const stubB = { x: end.x,   y: end.y   };
+
+    let mid1, mid2;
+    if (isVertA && isVertB) {
+      // Horizontal rail. Force midY outside both boxes if the rail would
+      // otherwise cut through one of them.
+      let midY = (stubA.y + stubB.y) / 2 + jog;
+      // If rail Y is inside a box's y-range AND the rail x-extent overlaps
+      // that box's x-range, push the rail above or below.
+      const railLo = Math.min(stubA.x, stubB.x);
+      const railHi = Math.max(stubA.x, stubB.x);
+      function clearY(box) {
+        const yIn = midY >= box.top - PAD && midY <= box.bottom + PAD;
+        const xOverlap = railHi >= box.left - PAD && railLo <= box.right + PAD;
+        if (yIn && xOverlap) {
+          // Move rail to the closer outside edge.
+          const above = box.top - PAD - 2;
+          const below = box.bottom + PAD + 2;
+          midY = Math.abs(midY - above) < Math.abs(midY - below) ? above : below;
+        }
+      }
+      clearY(a.rect); clearY(b.rect);
+      mid1 = { x: stubA.x, y: midY };
+      mid2 = { x: stubB.x, y: midY };
+    } else if (!isVertA && !isVertB) {
+      let midX = (stubA.x + stubB.x) / 2 + jog;
+      const railLo = Math.min(stubA.y, stubB.y);
+      const railHi = Math.max(stubA.y, stubB.y);
+      function clearX(box) {
+        const xIn = midX >= box.left - PAD && midX <= box.right + PAD;
+        const yOverlap = railHi >= box.top - PAD && railLo <= box.bottom + PAD;
+        if (xIn && yOverlap) {
+          const lft = box.left - PAD - 2;
+          const rgt = box.right + PAD + 2;
+          midX = Math.abs(midX - lft) < Math.abs(midX - rgt) ? lft : rgt;
+        }
+      }
+      clearX(a.rect); clearX(b.rect);
+      mid1 = { x: midX, y: stubA.y };
+      mid2 = { x: midX, y: stubB.y };
+    } else if (isVertA && !isVertB) {
+      // A vertical, B horizontal. Corner is at (stubA.x, stubB.y).
+      // If that corner lands inside either box, route via two corners
+      // around the offending box instead of one.
+      const cx = stubA.x, cy = stubB.y;
+      if (insideBox(cx, cy, a.rect, PAD) || insideBox(cx, cy, b.rect, PAD)) {
+        // Detour via stubA's y-line out to stubB.x, then down/up to stubB.
+        const detourY = sideA === "top"
+          ? Math.min(stubA.y, a.rect.top - PAD - 2, b.rect.top - PAD - 2)
+          : Math.max(stubA.y, a.rect.bottom + PAD + 2, b.rect.bottom + PAD + 2);
+        mid1 = { x: stubA.x, y: detourY };
+        mid2 = { x: stubB.x, y: detourY };
+      } else {
+        mid1 = { x: cx, y: cy };
+        mid2 = mid1;
+      }
+    } else {
+      // A horizontal, B vertical. Corner at (stubB.x, stubA.y).
+      const cx = stubB.x, cy = stubA.y;
+      if (insideBox(cx, cy, a.rect, PAD) || insideBox(cx, cy, b.rect, PAD)) {
+        const detourY = sideB === "top"
+          ? Math.min(stubB.y, a.rect.top - PAD - 2, b.rect.top - PAD - 2)
+          : Math.max(stubB.y, a.rect.bottom + PAD + 2, b.rect.bottom + PAD + 2);
+        mid1 = { x: stubA.x, y: detourY };
+        mid2 = { x: stubB.x, y: detourY };
+      } else {
+        mid1 = { x: cx, y: cy };
+        mid2 = mid1;
+      }
+    }
+
+    const pts = [start, stubA, mid1];
+    if (mid1 !== mid2) pts.push(mid2);
+    pts.push(stubB, end);
+    return pts;
+  }
+
+  function insideBox(x, y, rect, pad) {
+    return x >= rect.left - pad && x <= rect.right + pad &&
+           y >= rect.top  - pad && y <= rect.bottom + pad;
+  }
+
+  function polylineToRouted(a, b, jog, start, end, sideA, sideB, round) {
+    const pts = planOrthoPolyline(a, b, jog, start, end, sideA, sideB);
+    if (round) return polylineToRounded(pts, 10);
+    let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)} `;
+    for (let i = 1; i < pts.length; i++) {
+      d += `L ${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)} `;
+    }
+    return d.trim();
+  }
+
+  function stepFromSide(p, side, d) {
+    switch (side) {
+      case "top":    return { x: p.x, y: p.y - d };
+      case "bottom": return { x: p.x, y: p.y + d };
+      case "left":   return { x: p.x - d, y: p.y };
+      case "right":  return { x: p.x + d, y: p.y };
+    }
+    return { x: p.x, y: p.y };
+  }
+
+  // Like buildOrthoPath but each corner is replaced by a small quadratic
+  // bezier so the wire reads as a circuit trace with rounded fillets.
+  function buildRoundedOrthoPath(a, b, jog, start, end, sideA, sideB) {
+    return polylineToRouted(a, b, jog, start, end, sideA, sideB, /*round=*/true);
+  }
+
+  // Take a polyline of right-angle corners and emit an SVG path string with
+  // each corner rounded via Q (quadratic). Straight portions become L.
+  function polylineToRounded(pts, r) {
+    if (pts.length === 0) return "";
+    if (pts.length === 1) return `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+    let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)} `;
+    for (let i = 1; i < pts.length - 1; i++) {
+      const prev = pts[i - 1], curr = pts[i], next = pts[i + 1];
+      // Vector lengths from corner backward/forward.
+      const dx1 = prev.x - curr.x, dy1 = prev.y - curr.y;
+      const dx2 = next.x - curr.x, dy2 = next.y - curr.y;
+      const len1 = Math.hypot(dx1, dy1);
+      const len2 = Math.hypot(dx2, dy2);
+      // If either leg is too short for the requested fillet, shrink it.
+      const radius = Math.min(r, len1 / 2, len2 / 2);
+      if (radius <= 0.5) {
+        // Degenerate / colinear -> straight line through the point.
+        d += `L ${curr.x.toFixed(1)} ${curr.y.toFixed(1)} `;
+        continue;
+      }
+      const ax = curr.x + (dx1 / len1) * radius;
+      const ay = curr.y + (dy1 / len1) * radius;
+      const bx = curr.x + (dx2 / len2) * radius;
+      const by = curr.y + (dy2 / len2) * radius;
+      d += `L ${ax.toFixed(1)} ${ay.toFixed(1)} `;
+      d += `Q ${curr.x.toFixed(1)} ${curr.y.toFixed(1)} ${bx.toFixed(1)} ${by.toFixed(1)} `;
+    }
+    const last = pts[pts.length - 1];
+    d += `L ${last.x.toFixed(1)} ${last.y.toFixed(1)}`;
+    return d;
+  }
+
+  // RELATION: orange dashed straight line, port-to-port.
+  function buildRelationPath(a, b, jog, start, end, sideA, sideB) {
+    return `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} ` +
+           `L ${end.x.toFixed(1)} ${end.y.toFixed(1)}`;
+  }
+
+  // QUALITY: smooth cubic bezier, lime. Control handles pushed outward so
+  // the curve never bends back into either ellipse.
+  function buildQualityPath(a, b, jog, start, end, sideA, sideB) {
+    // jog is 0..4 deterministic per pair; nudge handle length so parallel
+    // curves don't perfectly overlap.
+    const base = Math.max(30, Math.hypot(end.x - start.x, end.y - start.y) * 0.35);
+    const handle = base + jog * 4;
+    const c1 = stepFromSide(start, sideA, handle);
+    const c2 = stepFromSide(end,   sideB, handle);
+    return `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} ` +
+           `C ${c1.x.toFixed(1)} ${c1.y.toFixed(1)}, ` +
+           `${c2.x.toFixed(1)} ${c2.y.toFixed(1)}, ` +
+           `${end.x.toFixed(1)} ${end.y.toFixed(1)}`;
+  }
+  function tick(now) {
+    for (const cat of DRAWN_CATS) {
+      boxInUse[cat] = 0;
+      boxInUse[cat + "_port"] = 0;
+    }
+
+    // 1. Collect anchor points per category.
+    const PAD = 2;
+    const buckets = { ENTITY: [], ACTION: [], QUALITY: [], RELATION: [] };
+    const captionEls = document.getElementsByClassName("caption");
+    const wordOrder = new WeakMap();
+    const lastWordIdxByCap = new WeakMap();
+    for (let ci = 0; ci < captionEls.length; ci++) {
+      const cap = captionEls[ci];
+      const ws = cap.querySelectorAll(".word");
+      for (let wi = 0; wi < ws.length; wi++) wordOrder.set(ws[wi], wi);
+      lastWordIdxByCap.set(cap, ws.length - 1);
+    }
+
+    const words = document.querySelectorAll(".word[data-cat]");
+    for (const w of words) {
+      const cat = w.dataset.cat;
+      if (!buckets[cat]) continue;
+      const chs = w.querySelectorAll(".ch");
+      const chsOn = w.querySelectorAll(".ch.on");
+      if (chsOn.length === 0) continue;
+      const cap = w.closest(".caption");
+      if (!cap) continue;
+      const capId = cap.dataset.cap;
+      if (capId == null) continue;
+
+      // Cache the word's final bounding rect once all characters have
+      // arrived. While slide-in is still in progress, skip drawing wires for
+      // this word so we don't track a moving anchor (which causes the wire
+      // to jitter with each new character). The box itself can wait too.
+      let r = w._finalRect;
+      if (!r) {
+        if (chsOn.length < chs.length) continue;        // still sliding in
+        r = w.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) continue;
+        // Snapshot to a plain object so it doesn't react to layout shifts.
+        w._finalRect = {
+          left: r.left, right: r.right, top: r.top, bottom: r.bottom,
+          width: r.width, height: r.height,
+        };
+        r = w._finalRect;
+      }
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const wIdx = wordOrder.get(w) ?? 0;
+      const lastIdx = lastWordIdxByCap.get(cap) ?? wIdx;
+      buckets[cat].push({
+        capId: +capId,
+        wordIdx: wIdx,
+        isFirstInCap: wIdx === 0,
+        isLastInCap:  wIdx === lastIdx,
+        x: cx, y: cy, rect: r,
+        left:   { x: r.left   - PAD, y: cy },
+        right:  { x: r.right  + PAD, y: cy },
+        top:    { x: cx,             y: r.top    - PAD },
+        bottom: { x: cx,             y: r.bottom + PAD },
+      });
+    }
+
+    // 2. Draw the per-word box.
+    for (const p of buckets.ENTITY) {
+      const r = p.rect;
+      const box = getRectBox("ENTITY", "entity-box");
+      box.setAttribute("x", (r.left - PAD).toFixed(1));
+      box.setAttribute("y", (r.top - PAD).toFixed(1));
+      box.setAttribute("width", (r.width + PAD * 2).toFixed(1));
+      box.setAttribute("height", (r.height + PAD * 2).toFixed(1));
+      box.setAttribute("rx", "0");
+      p.usedPorts = new Set();
+    }
+    for (const p of buckets.ACTION) {
+      const r = p.rect;
+      const box = getRectBox("ACTION", "action-box");
+      box.setAttribute("x", (r.left - PAD).toFixed(1));
+      box.setAttribute("y", (r.top - PAD).toFixed(1));
+      box.setAttribute("width", (r.width + PAD * 2).toFixed(1));
+      box.setAttribute("height", (r.height + PAD * 2).toFixed(1));
+      box.setAttribute("rx", (Math.min(r.height, r.width) * 0.45).toFixed(1));
+      p.usedPorts = new Set();
+    }
+    for (const p of buckets.QUALITY) {
+      const r = p.rect;
+      const e = getEllipseBox("QUALITY", "quality-box");
+      e.setAttribute("cx", (r.left + r.width / 2).toFixed(1));
+      e.setAttribute("cy", (r.top + r.height / 2).toFixed(1));
+      e.setAttribute("rx", (r.width / 2 + PAD + 2).toFixed(1));
+      e.setAttribute("ry", (r.height / 2 + PAD).toFixed(1));
+      p.usedPorts = new Set();
+    }
+    for (const p of buckets.RELATION) {
+      const r = p.rect;
+      const box = getRectBox("RELATION", "relation-box");
+      box.setAttribute("x", (r.left - PAD).toFixed(1));
+      box.setAttribute("y", (r.top - PAD).toFixed(1));
+      box.setAttribute("width", (r.width + PAD * 2).toFixed(1));
+      box.setAttribute("height", (r.height + PAD * 2).toFixed(1));
+      box.setAttribute("rx", "0");
+      p.usedPorts = new Set();
+    }
+
+    function chooseSide(p, other) {
+      const dx = other.x - p.x;
+      const dy = other.y - p.y;
+      const horizontalOk =
+        (dx > 0 && p.isLastInCap) ||
+        (dx < 0 && p.isFirstInCap);
+      if (horizontalOk) return dx > 0 ? "right" : "left";
+      return dy > 0 ? "bottom" : "top";
+    }
+
+    const builders = {
+      ENTITY:   buildEntityPath,
+      ACTION:   buildActionPath,
+      QUALITY:  buildQualityPath,
+      RELATION: buildRelationPath,
+    };
+
+    // 3. Walk anchor pairs, mark which keys are alive this frame.
+    const aliveKeys = new Set();
+    for (const cat of DRAWN_CATS) {
+      const pts = buckets[cat];
+      if (pts.length < 2) continue;
+      pts.sort((a, b) => (a.capId - b.capId) || (a.wordIdx - b.wordIdx));
+      const build = builders[cat];
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i], b = pts[i+1];
+        const sideA = chooseSide(a, b);
+        const sideB = chooseSide(b, a);
+        const start = a[sideA], end = b[sideB];
+        const key = pairKey(cat, a, b);
+        // Deterministic jog: same pair -> same offset, no jitter when other
+        // pairs reorder around it.
+        const jog = hashStr(key) % 5;
+        const d = build(a, b, jog, start, end, sideA, sideB);
+        aliveKeys.add(key);
+
+        let rec = wires.get(key);
+        if (!rec) {
+          // New pair -> create path, start "enter" animation.
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute("class", CAT_CLASS[cat]);
+          path.setAttribute("d", d);
+          svg.appendChild(path);
+          rec = {
+            path, cat, phase: "enter", phaseStartedAt: now,
+            d,
+            // Cache length once -- enter/exit animation locks d so length stays valid.
+            length: 0,
+          };
+          // Measure length right away. Calling getTotalLength after setting d
+          // forces a sync layout in some browsers but gives us a stable value.
+          rec.length = path.getTotalLength() || 1;
+          path.style.strokeDasharray = rec.length;
+          path.style.strokeDashoffset = rec.length;   // start fully hidden
+          wires.set(key, rec);
+        } else if (rec.phase === "live") {
+          // Live: free to update d (and refresh length) each frame.
+          if (rec.d !== d) {
+            rec.path.setAttribute("d", d);
+            rec.d = d;
+            rec.length = rec.path.getTotalLength() || rec.length;
+            rec.path.style.strokeDasharray = rec.length;
+            rec.path.style.strokeDashoffset = 0;
+          }
+        } else if (rec.phase === "exit") {
+          // Cancelling an exit: restart enter from where the offset is now.
+          // Don't change d / length so the dasharray stays consistent.
+          rec.phase = "enter";
+          // Compute current offset to back-solve a phase start that produces
+          // the same offset, so the wire keeps drawing in from where it was.
+          const remaining = parseFloat(rec.path.style.strokeDashoffset) || 0;
+          const ratio = remaining / rec.length;
+          // We want easeOutCubic(t) to equal (1 - ratio).
+          const target = 1 - ratio;
+          const t = 1 - Math.cbrt(1 - target);   // inverse easeOutCubic
+          rec.phaseStartedAt = now - t * WIRE_ENTER_MS;
+        }
+
+        a.usedPorts.add(sideA);
+        b.usedPorts.add(sideB);
+      }
+    }
+
+    // 4. Animate dashoffset based on phase. d/length are frozen during
+    //    enter/exit so the dash math stays valid.
+    for (const [key, rec] of wires) {
+      const path = rec.path;
+      const len = rec.length;
+      let offset;
+      if (rec.phase === "enter") {
+        const t = Math.min(1, (now - rec.phaseStartedAt) / WIRE_ENTER_MS);
+        offset = (1 - easeOutCubic(t)) * len;
+        if (t >= 1) {
+          rec.phase = "live";
+          offset = 0;
+        }
+      } else if (rec.phase === "exit") {
+        const t = Math.min(1, (now - rec.phaseStartedAt) / WIRE_EXIT_MS);
+        offset = easeInCubic(t) * len;
+        if (t >= 1) {
+          path.remove();
+          wires.delete(key);
+          continue;
+        }
+      } else {
+        offset = 0;
+      }
+      path.style.strokeDashoffset = offset;
+    }
+
+    // 5. Any wire still in `wires` but not in aliveKeys -> start exit phase.
+    for (const [key, rec] of wires) {
+      if (rec.phase === "exit") continue;
+      if (!aliveKeys.has(key)) {
+        rec.phase = "exit";
+        rec.phaseStartedAt = now;
+      }
+    }
+
+    // 6. Draw active ports.
+    for (const cat of DRAWN_CATS) {
+      for (const p of buckets[cat]) {
+        for (const side of p.usedPorts) {
+          const port = getPort(cat);
+          port.setAttribute("cx", p[side].x.toFixed(1));
+          port.setAttribute("cy", p[side].y.toFixed(1));
+          port.setAttribute("r", "0.9");
+        }
+      }
+    }
+
+    hideExtras();
+    requestAnimationFrame(safeTick);
+  }
+
+  function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+  function easeInCubic(t)  { return t * t * t; }
+
+  function safeTick(now) {
+    try { tick(now || performance.now()); }
+    catch (e) {
+      console.error("wire tick error", e);
+      requestAnimationFrame(safeTick);
+    }
+  }
+  requestAnimationFrame(safeTick);
+}
+
+// === Stats panel (fps, dom nodes, heap) ===
+function startStats() {
+  const el = document.getElementById("stats");
+  let frames = 0;
+  let last = performance.now();
+  let lastReport = last;
+  function frame() {
+    frames++;
+    const now = performance.now();
+    if (now - lastReport >= 500) {
+      const fps = (frames * 1000) / (now - lastReport);
+      const captions = document.getElementsByClassName("caption").length;
+      const allNodes = document.getElementsByTagName("*").length;
+      const jobs = (typeof charJobs !== "undefined") ? charJobs.length : 0;
+      const active = activeClipFiles.size;
+      const mem = (performance.memory && performance.memory.usedJSHeapSize)
+        ? (performance.memory.usedJSHeapSize / 1048576).toFixed(1) + "MB"
+        : "n/a";
+      el.textContent = `fps ${fps.toFixed(0)}  caps ${captions}  nodes ${allNodes}  jobs ${jobs}  active ${active}  heap ${mem}`;
+      frames = 0;
+      lastReport = now;
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+
+async function main() {
+  const res = await fetch("clips.json");
+  clips = await res.json();
+  buildTierPools();
+  console.log("loaded", clips.length, "clips");
+
+  document.getElementById("startBtn").addEventListener("click", () => {
+    document.getElementById("start").style.display = "none";
+    startStats();
+    startPianoAmbient();
+    startWireLoop();
+    TRACK_LAYERS.forEach((layer, i) => {
+      const t = new Track(layer);
+      setTimeout(() => t.start(), i * TRACK_START_STAGGER_MS);
+    });
+  });
+}
+
+main();
+</script>
+</body>
+</html>

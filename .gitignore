@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Local IDE / tooling
+.claude/
+*.code-workspace
+
+# === Audio data ===
+# Original raw datasets (large, license-restricted, regenerable from source).
+web/korean_audio/
+web/chinese_audio/
+
+# Extracted clip folders (regenerable via the *_clips.py / download_*.py scripts).
+web/audio/
+web/audio_rejected/
+web/english_audio/
+web/chinese_audio_clips/
+web/japanese_audio_clips/
+web/korean_audio_clips/
+
+# Misc images dropped into the working dir
+web/*.jpg
+web/*.png
+
+# Hugging Face cache (if any leaked into repo)
+.hf_cache/
