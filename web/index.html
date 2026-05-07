@@ -22,6 +22,7 @@
   }
   #stage {
     position: fixed; inset: 0;
+    z-index: 2;       /* above #wires-bg semantic fills, below #wires */
   }
   /* Film-grain overlay: a single tiled SVG noise image composited via blend mode.
      The SVG is generated once and cached by the browser, so the GPU compositor
@@ -45,7 +46,7 @@
     white-space: pre;
   }
   #legend {
-    position: fixed; top: 16px; right: 16px;
+    position: fixed; top: 16px; left: 16px;
     font: 10px/1.5 monospace; color: #444;
     z-index: 20; user-select: none;
   }
@@ -69,6 +70,10 @@
     background: transparent; color: #8a8a8a;
     border-style: dashed; border-radius: 0;
   }
+  #legend .swatch.sem  {
+    background: #ff5e00; color: #ff5e00; border-radius: 0;
+    border-style: dashed;
+  }
   #legend .label { color: #444; }
   #legend .upos  { color: #888; font-size: 9px; }
   #wires {
@@ -79,6 +84,47 @@
     z-index: 5;
     overflow: visible;
   }
+  /* Background SVG layer for semantic fills (boxes + bands) so they sit
+     beneath caption text. Above the poem layer, below the stage. */
+  #wires-bg {
+    position: fixed;
+    left: 0; top: 0;
+    width: 100vw; height: 100vh;
+    pointer-events: none;
+    z-index: 1;
+    overflow: visible;
+  }
+  /* Background poem layer: each word fills the entire viewport and flashes
+     for a fraction of a second, then is replaced by the next word. The
+     container is a single full-screen frame; the active word lives inside. */
+  #poem-bg {
+    position: fixed;
+    left: 0; top: 0;
+    width: 100vw; height: 100vh;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Impact", "Anton Black", "Arial Black", "Helvetica Neue", sans-serif;
+    font-weight: 900;
+    color: #000;
+    text-transform: uppercase;
+    line-height: 0.85;
+    letter-spacing: -0.03em;
+  }
+  #poem-bg .pw {
+    /* Each word is one giant centred glyph block. JS sets font-size at
+       runtime so the word actually fills the screen even for short words. */
+    display: block;
+    text-align: center;
+    white-space: nowrap;
+    opacity: 0;
+    will-change: opacity, transform;
+  }
+  /* Flash sequence is generated in JS per-word so the rhythm changes
+     every time -- no CSS @keyframes here. */
   #wires path {
     fill: none;
     stroke-width: 0.22;
@@ -106,6 +152,21 @@
   #wires path.relation { stroke: #8a8a8a; stroke-dasharray: 4 4; }
   #wires rect.relation-box { stroke: #8a8a8a; stroke-dasharray: 4 3; fill: #8a8a8a; }
   #wires circle.relation-port { stroke: #8a8a8a; fill: #8a8a8a; }
+  /* SEMANTIC: cross-language meaning links. Filled band connecting the
+     nearest edge of two word boxes, so they look fused into one membrane.
+     No stroke -- the membrane reads as a clean colour wash. Both #wires
+     and #wires-bg need the same rules because the semantic layer lives in
+     the bg SVG (so it sits behind caption text). */
+  #wires path.semantic, #wires-bg path.semantic {
+    fill: #ff5e00;
+    fill-opacity: 0.55;
+    stroke: none;
+  }
+  #wires rect.semantic-box, #wires-bg rect.semantic-box {
+    stroke: none;
+    /* fill is set inline at runtime to the pair's <linearGradient> so the
+       box colour matches the connecting band exactly. */
+  }
 
   /* === Category isolation: legend buttons toggle data-focus-cat on body.
      Slow 600ms fade so it reads as the scene drifting; faded layer never
@@ -146,6 +207,45 @@
   body[data-focus-cat="RELATION"] #wires path.relation,
   body[data-focus-cat="RELATION"] #wires rect.relation-box,
   body[data-focus-cat="RELATION"] #wires circle.relation-port { opacity: 1; }
+  /* SEMANTIC focus: only the cross-language arrow paths stay lit. The
+     captions stay readable so you can see which two words it's linking. */
+  body[data-focus-cat="SEMANTIC"] .caption { opacity: 0.55; }
+  body[data-focus-cat="SEMANTIC"] #wires path.semantic,
+  body[data-focus-cat="SEMANTIC"] #wires-bg path.semantic,
+  body[data-focus-cat="SEMANTIC"] #wires-bg rect.semantic-box { opacity: 1; }
+  /* Generic faded layer also needs to dim the bg SVG when another
+     category is in focus (it isn't covered by the #wires-only rules above). */
+  body[data-focus-cat] #wires-bg path,
+  body[data-focus-cat] #wires-bg rect { opacity: 0.07; }
+
+  /* Korean gloss labels. Visible whenever a category focus is active
+     (freeze isn't required). Each label slides down + fades in on entry,
+     and slides up + fades out on exit. */
+  .ko-gloss {
+    position: absolute;
+    z-index: 6;
+    font: 11px/1.2 -apple-system, "Apple SD Gothic Neo", sans-serif;
+    color: #000;
+    background: rgba(255,255,255,0.92);
+    padding: 1px 5px;
+    border: 0.5px solid #444;
+    border-radius: 2px;
+    pointer-events: none;
+    white-space: nowrap;
+    opacity: 0;
+    transform: translateY(-4px);
+    transition: opacity 320ms ease, transform 320ms ease;
+  }
+  .ko-gloss.in {
+    /* opacity is set inline at runtime to match the caption's size tier */
+    transform: translateY(0);
+  }
+  /* Pure opacity fade-out (~0.3s) -- no upward slide on exit. */
+  .ko-gloss.out {
+    opacity: 0 !important;
+    transform: translateY(0);
+    transition: opacity 300ms ease;
+  }
 
   .caption {
     position: absolute;
@@ -193,6 +293,8 @@
 </style>
 </head>
 <body>
+<div id="poem-bg"></div>
+<svg id="wires-bg" xmlns="http://www.w3.org/2000/svg"></svg>
 <div id="stage"></div>
 <svg id="wires" xmlns="http://www.w3.org/2000/svg"></svg>
 <video id="cam" autoplay muted playsinline style="display:none"></video>
@@ -201,9 +303,14 @@
   <button class="row" data-cat="ACTION"><span class="swatch act"></span><span class="label">ACTION</span><span class="upos">verb · aux</span></button>
   <button class="row" data-cat="QUALITY"><span class="swatch qua"></span><span class="label">QUALITY</span><span class="upos">adj · adv</span></button>
   <button class="row" data-cat="RELATION"><span class="swatch rel"></span><span class="label">RELATION</span><span class="upos">adp · conj · det · part</span></button>
+  <button class="row" data-cat="SEMANTIC"><span class="swatch sem"></span><span class="label">SEMANTIC</span><span class="upos">cross-lang meaning</span></button>
   <button class="row" id="freezeBtn" style="margin-top: 6px;">
     <span class="swatch" style="background: transparent; color: #444; border-color: #444;"></span>
     <span class="label">FREEZE</span><span class="upos">snapshot · all-pairs</span>
+  </button>
+  <button class="row" id="poemBtn">
+    <span class="swatch" style="background: #000; color: #000; border-color: #000;"></span>
+    <span class="label">POEM</span><span class="upos">background flicker</span>
   </button>
 </div>
 <div id="stats"></div>
@@ -476,16 +583,13 @@ function makeCaptionEl(clip, layerClass) {
   // --- Path 1: pre-tagged tokens from clips.json ---
   if (Array.isArray(clip.tokens) && clip.tokens.length) {
     let cursor = 0;
+    let ti = -1;
     for (const t of clip.tokens) {
+      ti++;
       const surf = t.surf || "";
       if (!surf) continue;
-      // Find this surface form in the original text starting at cursor.
-      // Stanza often retokenises (drops/changes whitespace), so we search
-      // the next occurrence rather than assuming exact alignment.
       const found = text.indexOf(surf, cursor);
       if (found > cursor) {
-        // Emit raw chars in the gap (whitespace, punctuation that stanza
-        // didn't tokenise into a word) as a "space" or untagged word.
         const gap = text.slice(cursor, found);
         appendGap(el, gap);
       }
@@ -494,6 +598,16 @@ function makeCaptionEl(clip, layerClass) {
       if (t.cat && t.cat !== "OTHER") {
         word.dataset.cat = t.cat;
       }
+      // Stash the (file, ti) identity, the precomputed similar list, and
+      // the Korean gloss so the runtime can show a translation overlay
+      // while the scene is paused on a category.
+      word._clipFile = clip.file;
+      word._tokenIdx = ti;
+      word._lang = lang;
+      if (Array.isArray(t.similar) && t.similar.length) {
+        word._similar = t.similar;
+      }
+      if (t.ko) word._ko = t.ko;
       for (const ch of Array.from(surf)) {
         const span = document.createElement("span");
         span.className = "ch";
@@ -951,11 +1065,16 @@ const WIRE_EXIT_MS  = 352;
 
 function startWireLoop() {
   const svg = document.getElementById("wires");
+  // Background SVG hosts only semantic fills (band path + word boxes) so
+  // the orange wash sits behind caption text rather than over it.
+  const svgBg = document.getElementById("wires-bg");
   let wireLastTickNow = 0;   // last tick timestamp (used to slip phase clocks while frozen)
   function syncViewBox() {
-    svg.setAttribute("viewBox", `0 0 ${window.innerWidth} ${window.innerHeight}`);
-    svg.setAttribute("width", window.innerWidth);
-    svg.setAttribute("height", window.innerHeight);
+    for (const s of [svg, svgBg]) {
+      s.setAttribute("viewBox", `0 0 ${window.innerWidth} ${window.innerHeight}`);
+      s.setAttribute("width", window.innerWidth);
+      s.setAttribute("height", window.innerHeight);
+    }
   }
   syncViewBox();
   window.addEventListener("resize", syncViewBox);
@@ -972,6 +1091,91 @@ function startWireLoop() {
     ENTITY: 0, ACTION: 0, QUALITY: 0, RELATION: 0,
     ENTITY_port: 0, ACTION_port: 0, QUALITY_port: 0, RELATION_port: 0,
   };
+  // Semantic arrows live in a separate keyed map so each pair has its own
+  // enter/exit lifecycle. pairKey = `${aFile}|${aTi}::${bFile}|${bTi}`
+  // (sorted so order doesn't matter).
+  const semanticWires = new Map();
+  // Semantic boxes (orange outline around each word that's part of any
+  // semantic pair on screen). Index-based, recycled per tick.
+  const semBoxPool = [];
+  let semBoxInUse = 0;
+  function getSemanticBox() {
+    let r = semBoxPool[semBoxInUse++];
+    if (!r) {
+      r = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      r.setAttribute("class", "semantic-box");
+      svgBg.appendChild(r);
+      semBoxPool[semBoxInUse - 1] = r;
+    }
+    return r;
+  }
+  function semPairKey(aFile, aTi, bFile, bTi) {
+    const ka = `${aFile}|${aTi}`;
+    const kb = `${bFile}|${bTi}`;
+    return ka < kb ? `${ka}::${kb}` : `${kb}::${ka}`;
+  }
+  // Map a word's caption-size fillOpacity to a stop-opacity used by the
+  // semantic gradient and the matching solid box fill. Defined up here so
+  // the box-drawing pass can call it before the gradient pass.
+  function semStopOpacity(fillOp) {
+    if (fillOp >= 0.30) return 0.85;   // main word
+    if (fillOp >= 0.10) return 0.50;   // sub word
+    return 0.22;                        // micro / silent word
+  }
+
+  // Pick the nearest pair of edges between two rectangles (with a small pad)
+  // and return the four corner points that form a quadrilateral connecting
+  // those two edges. Result is a 4-point polygon ordered for SVG fill.
+  function nearestEdgeQuad(ar, br, pad) {
+    const aL = ar.left - pad,  aR = ar.right + pad;
+    const aT = ar.top - pad,   aB = ar.bottom + pad;
+    const bL = br.left - pad,  bR = br.right + pad;
+    const bT = br.top - pad,   bB = br.bottom + pad;
+    // Decide horizontal vs vertical relation.
+    let side; // "AR-BL" | "AL-BR" | "AB-BT" | "AT-BB"
+    if (aR <= bL) side = "AR-BL";
+    else if (bR <= aL) side = "AL-BR";
+    else if (aB <= bT) side = "AB-BT";
+    else if (bB <= aT) side = "AT-BB";
+    else return null;   // overlapping -> skip
+
+    if (side === "AR-BL") {
+      // a's right edge to b's left edge -> trapezoid linking the two vertical edges
+      // Clip the y-range to a's edge so the band attaches to a's whole right side
+      // and tapers to b's left side.
+      return [
+        { x: aR, y: aT },
+        { x: bL, y: bT },
+        { x: bL, y: bB },
+        { x: aR, y: aB },
+      ];
+    }
+    if (side === "AL-BR") {
+      return [
+        { x: bR, y: bT },
+        { x: aL, y: aT },
+        { x: aL, y: aB },
+        { x: bR, y: bB },
+      ];
+    }
+    if (side === "AB-BT") {
+      return [
+        { x: aL, y: aB },
+        { x: aR, y: aB },
+        { x: bR, y: bT },
+        { x: bL, y: bT },
+      ];
+    }
+    if (side === "AT-BB") {
+      return [
+        { x: aL, y: aT },
+        { x: bL, y: bB },
+        { x: bR, y: bB },
+        { x: aR, y: aT },
+      ];
+    }
+    return null;
+  }
 
   // Persistent map of pairKey -> wire record, where the record owns its DOM
   // <path> for its full lifetime (enter -> live -> exit).
@@ -984,6 +1188,14 @@ function startWireLoop() {
   // word" wire visibly tapers from solid to faint.
   const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
   svg.appendChild(defs);
+  // Background SVG needs its own defs so the semantic gradients live in
+  // the same document fragment as the paths that reference them. Otherwise
+  // some renderers fail to resolve url(#id) across SVG roots.
+  const defsBg = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+  svgBg.appendChild(defsBg);
+
+  // Semantic arrowheads are drawn as separate <path> elements next to each
+  // line, so SVG markers aren't needed.
   let gradSeq = 0;
   // Cat -> base stroke colour (matches CSS for path.<cat>).
   const CAT_COLOR = {
@@ -1074,6 +1286,10 @@ function startWireLoop() {
     for (let i = boxInUse.QUALITY; i < boxPool.QUALITY.length; i++) {
       boxPool.QUALITY[i].setAttribute("rx", "0");
       boxPool.QUALITY[i].setAttribute("ry", "0");
+    }
+    for (let i = semBoxInUse; i < semBoxPool.length; i++) {
+      semBoxPool[i].setAttribute("width", "0");
+      semBoxPool[i].setAttribute("height", "0");
     }
   }
 
@@ -1289,22 +1505,16 @@ function startWireLoop() {
            `${end.x.toFixed(1)} ${end.y.toFixed(1)}`;
   }
   function tick(now) {
-    // While frozen, hold every wire animation in place and advance phase
-    // start times by the elapsed delta so animations resume seamlessly.
-    if (frozen) {
-      const dt = wireLastTickNow ? (now - wireLastTickNow) : 0;
-      if (dt > 0) {
-        for (const [, rec] of wires) rec.phaseStartedAt += dt;
-      }
-      wireLastTickNow = now;
-      return;
-    }
+    // Wire animations (enter/exit dashoffset) keep running even while
+    // frozen so any trace already in flight finishes drawing. Caption
+    // text + audio are still paused via their own gates.
     wireLastTickNow = now;
 
     for (const cat of DRAWN_CATS) {
       boxInUse[cat] = 0;
       boxInUse[cat + "_port"] = 0;
     }
+    semBoxInUse = 0;
 
     // 1. Collect anchor points per category.
     const PAD = 2;
@@ -1361,6 +1571,7 @@ function startWireLoop() {
       if (cap.classList.contains("main"))      fillOpacity = 0.32;
       else if (cap.classList.contains("sub"))  fillOpacity = 0.14;
       else                                      fillOpacity = 0.06;
+      w._fillOp = fillOpacity;
       buckets[cat].push({
         capId: +capId,
         wordIdx: wIdx,
@@ -1603,7 +1814,200 @@ function startWireLoop() {
       }
     }
 
+    // 7. Semantic arrows: mutual cross-language meaning links. Each visible
+    //    word has a precomputed `_similar` list pointing at (file, ti).
+    //    For every pair where both endpoints are on screen, draw a single
+    //    yellow dashed wire with arrow markers on both ends.
+    const visibleWords = stage.getElementsByClassName("word");
+    // Build a (file::ti) -> {word, rect, capId} index of currently anchored words.
+    const wordIndex = new Map();
+    for (let i = 0; i < visibleWords.length; i++) {
+      const w = visibleWords[i];
+      if (!w._clipFile || w._tokenIdx == null) continue;
+      if (!w._finalRect) continue;          // not yet settled
+      if (w.querySelector(".ch.off-left")) continue;   // sliding out
+      if (!w.querySelector(".ch.on")) continue;
+      wordIndex.set(`${w._clipFile}|${w._tokenIdx}`, w);
+    }
+
+    // 7a. Compute alive pair keys with their geometry. Each pair becomes a
+    // 4-point polygon connecting the nearest edges of the two word boxes.
+    // Track which words anchor which pairs so the box fill can match the
+    // pair's wipe progress.
+    const SEM_PAD = 5;
+    const semAlive = new Map();   // pk -> {...}
+    // word -> {role: "A"|"B", pk}, the "best" pair for that word (used to
+    // pick the box's effective opacity). A word in many pairs picks its
+    // most-progressed pair.
+    const semWordRoles = new Map();
+    for (const [aKey, aWord] of wordIndex) {
+      const sims = aWord._similar;
+      if (!sims) continue;
+      for (const s of sims) {
+        if (s.file === aWord._clipFile) continue;
+        const bKey = `${s.file}|${s.ti}`;
+        const bWord = wordIndex.get(bKey);
+        if (!bWord) continue;
+        const pk = semPairKey(aWord._clipFile, aWord._tokenIdx, s.file, s.ti);
+        if (semAlive.has(pk)) continue;
+        const ar = aWord._finalRect, br = bWord._finalRect;
+        const quad = nearestEdgeQuad(ar, br, SEM_PAD);
+        if (!quad) continue;
+        const dStr = "M " + quad.map(p => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" L ") + " Z";
+        const acx = ar.left + ar.width / 2;
+        const acy = ar.top + ar.height / 2;
+        const bcx = br.left + br.width / 2;
+        const bcy = br.top + br.height / 2;
+        semAlive.set(pk, {
+          d: dStr,
+          opA: aWord._fillOp ?? 0.5,
+          opB: bWord._fillOp ?? 0.5,
+          ax: acx, ay: acy, bx: bcx, by: bcy,
+          aWord, bWord,
+        });
+        if (!semWordRoles.has(aWord)) semWordRoles.set(aWord, { role: "A", pk });
+        if (!semWordRoles.has(bWord)) semWordRoles.set(bWord, { role: "B", pk });
+      }
+    }
+    // Box fills are deferred to phase 7d so they can read the wipe head
+    // each pair's animation has reached this frame.
+
+    // 7b. Reconcile semanticWires map with alive set: create new, update
+    // existing, mark dead ones for exit.
+    for (const [pk, info] of semAlive) {
+      let rec = semanticWires.get(pk);
+      if (!rec) {
+        // Gradient with FOUR stops:
+        //   stop0: a-end colour (starts at offset 0)
+        //   stop1: a-end colour at the wipe head (zero alpha just past head)
+        //   stop2: b-end colour at the same offset (zero alpha)
+        //   stop3: b-end colour at offset 1
+        // During enter we slide stop1/stop2 from 0 -> 1 so the band wipes
+        // from a's side toward b's side. Exit slides 1 -> 0 so the band
+        // recedes back to a.
+        const id = `semGrad${gradSeq++}`;
+        const g = document.createElementNS("http://www.w3.org/2000/svg", "linearGradient");
+        g.setAttribute("id", id);
+        g.setAttribute("gradientUnits", "userSpaceOnUse");
+        const stops = [];
+        for (let i = 0; i < 4; i++) {
+          const s = document.createElementNS("http://www.w3.org/2000/svg", "stop");
+          s.setAttribute("stop-color", "#ff5e00");
+          s.setAttribute("stop-opacity", "0");
+          g.appendChild(s);
+          stops.push(s);
+        }
+        defs.appendChild(g);
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("class", "semantic");
+        path.setAttribute("d", info.d);
+        path.style.fill = `url(#${id})`;
+        svg.appendChild(path);
+        rec = {
+          path, grad: { el: g, id, stops },
+          phase: "enter", phaseStartedAt: now,
+          d: info.d, dirSig: "",
+        };
+        semanticWires.set(pk, rec);
+      } else {
+        if (rec.phase === "exit") {
+          rec.phase = "enter";
+          rec.phaseStartedAt = now;
+        }
+        if (rec.d !== info.d) {
+          rec.path.setAttribute("d", info.d);
+          rec.d = info.d;
+        }
+      }
+      // Update gradient direction whenever endpoints move.
+      const dirSig = `${info.ax.toFixed(0)}|${info.ay.toFixed(0)}|${info.bx.toFixed(0)}|${info.by.toFixed(0)}`;
+      if (rec.dirSig !== dirSig) {
+        rec.grad.el.setAttribute("x1", info.ax.toFixed(1));
+        rec.grad.el.setAttribute("y1", info.ay.toFixed(1));
+        rec.grad.el.setAttribute("x2", info.bx.toFixed(1));
+        rec.grad.el.setAttribute("y2", info.by.toFixed(1));
+        rec.dirSig = dirSig;
+      }
+      rec.opA = semStopOpacity(info.opA);
+      rec.opB = semStopOpacity(info.opB);
+    }
+    for (const [pk, rec] of semanticWires) {
+      if (!semAlive.has(pk) && rec.phase !== "exit") {
+        rec.phase = "exit";
+        rec.phaseStartedAt = now;
+      }
+    }
+
+    // 7c. Wipe enter/exit by sliding the gradient cutoff. `head` goes
+    // from 0 (only a-side visible) to 1 (whole band visible) on enter,
+    // and reverses on exit.
+    for (const [pk, rec] of semanticWires) {
+      let head;
+      if (rec.phase === "enter") {
+        const t = Math.min(1, (now - rec.phaseStartedAt) / WIRE_ENTER_MS);
+        head = easeOutCubic(t);
+        if (t >= 1) { rec.phase = "live"; head = 1; }
+      } else if (rec.phase === "exit") {
+        const t = Math.min(1, (now - rec.phaseStartedAt) / WIRE_EXIT_MS);
+        head = 1 - easeInCubic(t);
+        if (t >= 1) {
+          rec.path.remove();
+          if (rec.grad) rec.grad.el.remove();
+          semanticWires.delete(pk);
+          continue;
+        }
+      } else {
+        head = 1;
+      }
+
+      const opA = rec.opA ?? 0.5;
+      const opB = rec.opB ?? 0.5;
+      const eps = 0.04;
+      const h0 = Math.max(0, head - eps);
+      const h1 = Math.min(1, head + eps);
+      const reveal = Math.max(0, Math.min(1, (head - 0.75) / 0.25));
+      const tailAlpha = opB * reveal;
+      const stops = rec.grad.stops;
+      stops[0].setAttribute("offset", "0");
+      stops[0].setAttribute("stop-opacity", opA.toFixed(2));
+      stops[1].setAttribute("offset", h0.toFixed(3));
+      stops[1].setAttribute("stop-opacity", opA.toFixed(2));
+      stops[2].setAttribute("offset", h1.toFixed(3));
+      stops[2].setAttribute("stop-opacity", tailAlpha.toFixed(2));
+      stops[3].setAttribute("offset", "1");
+      stops[3].setAttribute("stop-opacity", tailAlpha.toFixed(2));
+      // Cache progress so the box-drawing pass below can match it.
+      rec.head = head;
+      rec.tailAlpha = tailAlpha;
+    }
+
+    // 7d. Draw filled boxes around each word participating in a pair.
+    //     Each box is a SOLID fill whose opacity equals the gradient's
+    //     stop value at that endpoint. Since the band's gradient stops
+    //     reach `opA` at the a-word and `tailAlpha` at the b-word, the
+    //     box and band touch at exactly the same colour value -> seamless.
+    for (const [w, info] of semWordRoles) {
+      const r = w._finalRect;
+      if (!r) continue;
+      const rec = semanticWires.get(info.pk);
+      if (!rec) continue;
+      const op = info.role === "A"
+        ? (rec.opA ?? 0.5)         // a-side stops are pinned at this alpha
+        : (rec.tailAlpha ?? 0);    // b-side rises from 0 -> opB during the wipe
+      const box = getSemanticBox();
+      box.setAttribute("x", (r.left - SEM_PAD).toFixed(1));
+      box.setAttribute("y", (r.top - SEM_PAD).toFixed(1));
+      box.setAttribute("width", (r.width + SEM_PAD * 2).toFixed(1));
+      box.setAttribute("height", (r.height + SEM_PAD * 2).toFixed(1));
+      box.style.fill = "#ff5e00";
+      box.setAttribute("fill-opacity", Math.max(0, Math.min(1, op)).toFixed(2));
+    }
+
     hideExtras();
+    // Refresh Korean gloss labels each tick: words come and go with the
+    // captions, so the labels need to follow them. Cheap: it's a no-op
+    // when no focus category is set.
+    if (typeof refreshGlossLabels === "function") refreshGlossLabels();
   }
 
   function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
@@ -1625,6 +2029,105 @@ function startWireLoop() {
 }
 
 // === Stats panel (fps, dom nodes, heap) ===
+// Background poem: one quatrain laid out word-by-word in a huge condensed
+// face. Each word appears every BG_POEM_INTERVAL_MS, with a hard staccato
+// flicker, until all words are visible -- then the cycle repeats.
+const BG_POEM = (
+  "Ah Love! could thou and I with Fate conspire " +
+  "To grasp this sorry Scheme of Things entire, " +
+  "Would not we shatter it to bits - and then " +
+  "Re-mould it nearer to the Heart's Desire!"
+).split(/\s+/);
+const BG_POEM_INTERVAL_MS = 1000;
+
+// Module-scope handle so the legend toggle can flip the loop on/off.
+let poemBgController = null;
+
+function startPoemBackground() {
+  if (poemBgController) return;   // idempotent
+  const root = document.getElementById("poem-bg");
+  if (!root) return;
+  root.style.display = "flex";
+  const span = document.createElement("span");
+  span.className = "pw";
+  root.appendChild(span);
+
+  let running = true;
+  let pulseTimers = [];
+  let stepTimer = null;
+
+  function clearPulses() {
+    for (const t of pulseTimers) clearTimeout(t);
+    pulseTimers = [];
+  }
+
+  function fitFontSize(text) {
+    const W = window.innerWidth, H = window.innerHeight;
+    span.style.fontSize = "100px";
+    span.textContent = text;
+    const wFactor = (W * 0.92) / Math.max(1, span.offsetWidth);
+    const hFactor = (H * 0.85) / Math.max(1, span.offsetHeight);
+    return Math.floor(100 * Math.min(wFactor, hFactor));
+  }
+
+  function flashWord(word) {
+    clearPulses();
+    const fs = fitFontSize(word);
+    span.style.fontSize = fs + "px";
+    span.textContent = word;
+
+    const pulseCount = 2 + Math.floor(Math.random() * 3);
+    let t = 0;
+    for (let i = 0; i < pulseCount; i++) {
+      const onMs = 18 + Math.floor(Math.random() * 70);
+      const offMs = 8 + Math.floor(Math.random() * 60);
+      const jx = Math.floor(Math.random() * 7) - 3;
+      const jy = Math.floor(Math.random() * 5) - 2;
+      const inverted = Math.random() < 0.35;
+      const startAt = t;
+      pulseTimers.push(setTimeout(() => {
+        span.style.opacity = "1";
+        span.style.transform = `translate(${jx}px, ${jy}px)`;
+        span.style.filter = inverted ? "invert(1)" : "none";
+      }, startAt));
+      pulseTimers.push(setTimeout(() => {
+        span.style.opacity = "0";
+      }, startAt + onMs));
+      t = startAt + onMs + offMs;
+    }
+    pulseTimers.push(setTimeout(() => {
+      span.style.opacity = "0";
+      span.style.transform = "translate(0,0)";
+      span.style.filter = "none";
+    }, t + 20));
+  }
+
+  let idx = 0;
+  function step() {
+    if (!running) return;
+    flashWord(BG_POEM[idx]);
+    idx = (idx + 1) % BG_POEM.length;
+    const gap = BG_POEM_INTERVAL_MS - 80 + Math.floor(Math.random() * 220);
+    stepTimer = setTimeout(step, gap);
+  }
+  step();
+
+  poemBgController = {
+    stop() {
+      running = false;
+      if (stepTimer) { clearTimeout(stepTimer); stepTimer = null; }
+      clearPulses();
+      span.remove();
+      root.style.display = "none";
+      poemBgController = null;
+    },
+  };
+}
+
+function stopPoemBackground() {
+  if (poemBgController) poemBgController.stop();
+}
+
 function startStats() {
   const el = document.getElementById("stats");
   let frames = 0;
@@ -1663,6 +2166,7 @@ async function main() {
     startStats();
     startPianoAmbient();
     startWireLoop();
+    startPoemBackground();
     TRACK_LAYERS.forEach((layer, i) => {
       const t = new Track(layer);
       setTimeout(() => t.start(), i * TRACK_START_STAGGER_MS);
@@ -1685,14 +2189,12 @@ async function main() {
       document.body.classList.remove("focus-flash");
       void document.body.offsetWidth;
       document.body.classList.add("focus-flash");
+      refreshGlossLabels();
     });
   });
 
-  // Freeze toggle: stage 1 (settling) lets the in-flight captions/wires
-  // finish naturally; stage 2 (boxes) shows boxes only, fading in by
-  // Freeze toggle: hard pause/resume. Audio stops, every animation
-  // (caption slide, wire enter/exit, dashoffset) holds in place. Piano
-  // ambient keeps playing.
+  // Freeze toggle: hard pause/resume. Audio stops, every animation holds
+  // in place. Piano ambient keeps playing.
   const freezeBtn = document.getElementById("freezeBtn");
   freezeBtn.addEventListener("click", () => {
     frozen = !frozen;
@@ -1700,9 +2202,182 @@ async function main() {
     for (const a of liveAudios) {
       try { frozen ? a.pause() : a.play(); } catch (e) {}
     }
-    // Tracks resume on their own: their reschedule callbacks self-poll
-    // every 200ms while frozen and the first non-frozen poll runs the clip.
+    refreshGlossLabels();
   });
+
+  // Poem background toggle. Starts ON; click to stop, click again to resume.
+  const poemBtn = document.getElementById("poemBtn");
+  poemBtn.classList.add("active");      // visible state matches "running"
+  poemBtn.addEventListener("click", () => {
+    if (poemBgController) {
+      stopPoemBackground();
+      poemBtn.classList.remove("active");
+    } else {
+      startPoemBackground();
+      poemBtn.classList.add("active");
+    }
+  });
+}
+
+// Korean gloss boxes next to non-Korean tagged words. Active whenever a
+// category focus is set (freeze is no longer required). Labels follow the
+// caption lifecycle -- they fade in when the word arrives in the focused
+// category, fade out when the word leaves or the focus changes.
+const glossByWord = new WeakMap();   // word DOM -> label DOM
+const glossActive = new Set();        // currently visible label DOM elements
+function refreshGlossLabels() {
+  const focusCat = document.body.dataset.focusCat;
+
+  if (!focusCat) {
+    // Tear all labels down with an exit animation.
+    for (const label of glossActive) {
+      const word = label._word;
+      if (word) glossByWord.delete(word);
+      label._word = null;
+      label.classList.remove("in");
+      label.classList.add("out");
+      const t = setTimeout(() => label.remove(), 320);
+      label._removeTimer = t;
+    }
+    glossActive.clear();
+    return;
+  }
+
+  const stage = document.getElementById("stage");
+  const words = document.getElementsByClassName("word");
+
+  // Mutual partners for SEMANTIC mode.
+  const visibleByKey = new Map();
+  if (focusCat === "SEMANTIC") {
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i];
+      if (!w._clipFile || w._tokenIdx == null) continue;
+      if (!w._finalRect) continue;
+      if (w.querySelector(".ch.off-left")) continue;
+      if (!w.querySelector(".ch.on")) continue;
+      visibleByKey.set(`${w._clipFile}|${w._tokenIdx}`, w);
+    }
+  }
+  function hasVisiblePartner(w) {
+    if (!w._similar) return false;
+    for (const s of w._similar) {
+      if (s.file === w._clipFile) continue;
+      if (visibleByKey.has(`${s.file}|${s.ti}`)) return true;
+    }
+    return false;
+  }
+
+  // Decide which words should have a label this frame.
+  const wanted = [];
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const cat = w.dataset.cat;
+    if (!cat) continue;
+    if (focusCat === "SEMANTIC") {
+      if (!hasVisiblePartner(w)) continue;
+    } else {
+      if (cat !== focusCat) continue;
+    }
+    if (!w._ko) continue;
+    if (!w._finalRect) continue;
+    if (w.querySelector(".ch.off-left")) continue;
+    if (!w.querySelector(".ch.on")) continue;
+    wanted.push(w);
+  }
+  const wantedSet = new Set(wanted);
+
+  // Mark labels whose word is no longer wanted for exit.
+  for (const label of [...glossActive]) {
+    const word = label._word;
+    if (!word || !wantedSet.has(word)) {
+      if (word) glossByWord.delete(word);
+      label._word = null;
+      label.classList.remove("in");
+      label.classList.add("out");
+      glossActive.delete(label);
+      if (label._removeTimer) clearTimeout(label._removeTimer);
+      label._removeTimer = setTimeout(() => label.remove(), 320);
+    }
+  }
+
+  // Layout helper: avoid overlaps with already-placed labels (active +
+  // newly placed this frame).
+  const LABEL_H = 16;
+  const LABEL_GAP = 2;
+  const placed = [];
+  for (const label of glossActive) {
+    const left = parseFloat(label.style.left) || 0;
+    const top  = parseFloat(label.style.top)  || 0;
+    const rW = approxLabelWidth(label.textContent);
+    placed.push({ left, top, right: left + rW, bottom: top + LABEL_H });
+  }
+  function approxLabelWidth(text) {
+    return Math.max(20, text.length * 10.5 + 10);
+  }
+  function overlaps(a, b) {
+    return a.left < b.right && a.right > b.left &&
+           a.top  < b.bottom && a.bottom > b.top;
+  }
+
+  // Add labels for newly-wanted words (those without an existing label).
+  const newLabels = [];
+  for (const w of wanted) {
+    if (glossByWord.has(w)) continue;   // already has a label
+    const r = w._finalRect;
+    const labelW = approxLabelWidth(w._ko);
+    const left = Math.round(r.left);
+    let top = Math.round(r.bottom + 4);
+    const rect = { left, top, right: left + labelW, bottom: top + LABEL_H };
+    let tries = 0;
+    while (placed.some(p => overlaps(rect, p)) && tries < 10) {
+      top += LABEL_H + LABEL_GAP;
+      rect.top = top;
+      rect.bottom = top + LABEL_H;
+      tries++;
+    }
+    if (top + LABEL_H > window.innerHeight - 4) {
+      top = Math.round(r.top - LABEL_H - 4);
+      rect.top = top;
+      rect.bottom = top + LABEL_H;
+      tries = 0;
+      while (placed.some(p => overlaps(rect, p)) && tries < 10) {
+        top -= LABEL_H + LABEL_GAP;
+        rect.top = top;
+        rect.bottom = top + LABEL_H;
+        tries++;
+      }
+    }
+    placed.push(rect);
+
+    const label = document.createElement("div");
+    label.className = "ko-gloss";
+    label.textContent = w._ko;
+    label.style.left = `${left}px`;
+    label.style.top  = `${top}px`;
+    // Tie label visibility to the caption's size tier: main captions get
+    // a fully opaque label, sub a faded one, micro/silent barely visible.
+    const op = glossOpacityFor(w._fillOp ?? 0.06);
+    label.style.setProperty("--gloss-op", op.toFixed(2));
+    label._targetOpacity = op;
+    label._word = w;
+    stage.appendChild(label);
+    glossByWord.set(w, label);
+    glossActive.add(label);
+    newLabels.push(label);
+  }
+  requestAnimationFrame(() => {
+    for (const el of newLabels) {
+      el.classList.add("in");
+      el.style.opacity = el._targetOpacity;
+    }
+  });
+}
+
+function glossOpacityFor(fillOp) {
+  // Map caption fillOpacity (0.06 .. 0.32) to label opacity.
+  if (fillOp >= 0.30) return 1.0;    // main
+  if (fillOp >= 0.10) return 0.55;   // sub
+  return 0.25;                         // micro / silent
 }
 
 main();
