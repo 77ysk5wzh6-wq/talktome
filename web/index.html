@@ -3,11 +3,17 @@
 <head>
 <meta charset="utf-8">
 <title>Overlapping Voices</title>
+<!-- Serif fallbacks per script. The browser pulls them from Google Fonts. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Nanum+Myeongjo:wght@400;700&family=Noto+Serif+KR:wght@400;600&family=Noto+Serif+JP:wght@400;600&family=Noto+Serif+SC:wght@400;600&family=Noto+Naskh+Arabic:wght@400;600&display=swap" rel="stylesheet">
 <style>
   :root { color-scheme: light; }
   html, body {
     margin: 0; padding: 0; height: 100%;
-    color: #111; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Apple SD Gothic Neo", sans-serif;
+    color: #111;
+    font-family: "Helvetica Neue", "Helvetica", "Arial",
+                 "Apple SD Gothic Neo", sans-serif;
     overflow: hidden;
     /* Faint dot grid that lines up with the caption-placement grid (64x32px).
        Each cell origin gets a 1px dot at ~7% opacity -- visible only when the
@@ -19,10 +25,6 @@
       linear-gradient(to bottom, rgba(255, 140, 26, 0.10) 0.5px, transparent 0.5px);
     background-size: 32px 16px;
     background-position: 16px 16px;   /* match SAFE_MARGIN_PX */
-  }
-  #stage {
-    position: fixed; inset: 0;
-    z-index: 2;       /* above #wires-bg semantic fills, below #wires */
   }
   /* Film-grain overlay: a single tiled SVG noise image composited via blend mode.
      The SVG is generated once and cached by the browser, so the GPU compositor
@@ -243,7 +245,6 @@
   /* Pure opacity fade-out (~0.3s) -- no upward slide on exit. */
   .ko-gloss.out {
     opacity: 0 !important;
-    transform: translateY(0);
     transition: opacity 300ms ease;
   }
 
@@ -256,24 +257,48 @@
     line-height: 1.4;
     transition: font-size 320ms ease-out, max-width 320ms ease-out, color 320ms linear, opacity 320ms linear;
   }
+  /* Per-language serif overrides. The default sans uses the html/body
+     font-family above; captions tagged with data-fontstyle="serif" pull a
+     language-appropriate serif instead. The serif assignment is random
+     at caption creation time. */
+  .caption[lang="en"][data-fontstyle="serif"],
+  .caption[lang="no"][data-fontstyle="serif"] {
+    font-family: "EB Garamond", "Adobe Garamond Pro", Garamond, Georgia, serif;
+    font-weight: 500;
+  }
+  .caption[lang="ko"][data-fontstyle="serif"] {
+    font-family: "Nanum Myeongjo", "Noto Serif KR", "Apple SD Gothic Neo", serif;
+  }
+  .caption[lang="ja"][data-fontstyle="serif"] {
+    font-family: "Noto Serif JP", "Hiragino Mincho ProN", "YuMincho", serif;
+  }
+  .caption[lang="zh"][data-fontstyle="serif"] {
+    font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
+  }
+  .caption[lang="ar"][data-fontstyle="serif"] {
+    font-family: "Noto Naskh Arabic", "Amiri", serif;
+  }
+
+  /* Caption tier opacity: huge > main > sub > micro. */
+  .caption.huge {
+    /* 2.5x main: dominant, the loudest line on screen. */
+    font-size: 42px; font-weight: 700; color: #000; opacity: 1;
+    max-width: min(820px, 70vw);
+  }
   .caption.main {
-    font-size: 17px; font-weight: 600; color: #000; opacity: 1;
+    font-size: 17px; font-weight: 600; color: #000; opacity: 0.85;
     max-width: min(340px, 32vw);
   }
-  .caption.semi {
-    font-size: 13px; font-weight: 500; color: #222; opacity: 0.92;
-    max-width: min(260px, 26vw);
-  }
   .caption.sub {
-    font-size: 11px; font-weight: 400; color: #444; opacity: 0.85;
+    font-size: 11px; font-weight: 400; color: #444; opacity: 0.55;
     max-width: min(220px, 22vw);
   }
   .caption.sub.deeper {
-    font-size: 9px; color: #777; opacity: 0.7;
+    font-size: 9px; color: #777; opacity: 0.45;
     max-width: min(180px, 18vw);
   }
   .caption.micro {
-    font-size: 7px; color: #aaa; opacity: 0.55;
+    font-size: 7px; color: #aaa; opacity: 0.30;
     max-width: min(140px, 14vw);
     font-weight: 400;
   }
@@ -285,6 +310,11 @@
   }
   .ch.on { opacity: 1; transform: translateX(0); }
   .ch.off-left { opacity: 0; transform: translateX(-20vw); }
+  /* Arabic / RTL captions: chars enter from the LEFT and exit to the
+     RIGHT, mirroring the script's natural reading direction. */
+  .caption[dir="rtl"] .ch                  { transform: translateX(-20vw); }
+  .caption[dir="rtl"] .ch.on               { transform: translateX(0); }
+  .caption[dir="rtl"] .ch.off-left         { transform: translateX(20vw); }
   .word {
     display: inline-block;
     white-space: nowrap;
@@ -318,24 +348,26 @@
 <script>
 // Three tiers: main (large + loud), sub (medium), micro (tiny + quiet).
 const TRACK_LAYERS = [
-  // 2 main tracks
-  // Two main tracks: clearly audible, language picked uniformly each time.
-  { name: "m1", tier: "loud", volume: 0.95, captionClass: "caption main" },
-  { name: "m2", tier: "any",  volume: 0.95, captionClass: "caption main" },
-  // Six sub tracks, one per language.
-  { name: "u_en", tier: "any", volume: 0.14, captionClass: "caption sub", lang: "en" },
-  { name: "u_zh", tier: "any", volume: 0.14, captionClass: "caption sub", lang: "zh" },
-  { name: "u_ko", tier: "any", volume: 0.18, captionClass: "caption sub", lang: "ko" },
-  { name: "u_ja", tier: "any", volume: 0.13, captionClass: "caption sub", lang: "ja" },
-  { name: "u_ar", tier: "any", volume: 0.14, captionClass: "caption sub", lang: "ar" },
-  { name: "u_no", tier: "any", volume: 0.14, captionClass: "caption sub", lang: "no" },
-  // Six micro tracks, one per language.
-  { name: "t_en", tier: "any", volume: 0.025, captionClass: "caption micro", lang: "en" },
-  { name: "t_zh", tier: "any", volume: 0.025, captionClass: "caption micro", lang: "zh" },
-  { name: "t_ko", tier: "any", volume: 0.030, captionClass: "caption micro", lang: "ko" },
-  { name: "t_ja", tier: "any", volume: 0.025, captionClass: "caption micro", lang: "ja" },
-  { name: "t_ar", tier: "any", volume: 0.025, captionClass: "caption micro", lang: "ar" },
-  { name: "t_no", tier: "any", volume: 0.025, captionClass: "caption micro", lang: "no" },
+  // 2 huge tracks: dominant top tier (font 2.5x main, takes the old main volume)
+  { name: "h1", tier: "loud", volume: 0.95, captionClass: "caption huge" },
+  { name: "h2", tier: "any",  volume: 0.95, captionClass: "caption huge" },
+  // 2 main tracks: bumped down to what was the sub level
+  { name: "m1", tier: "loud", volume: 0.18, captionClass: "caption main" },
+  { name: "m2", tier: "any",  volume: 0.18, captionClass: "caption main" },
+  // Six sub tracks: bumped down to what was the micro level
+  { name: "u_en", tier: "any", volume: 0.030, captionClass: "caption sub", lang: "en" },
+  { name: "u_zh", tier: "any", volume: 0.030, captionClass: "caption sub", lang: "zh" },
+  { name: "u_ko", tier: "any", volume: 0.038, captionClass: "caption sub", lang: "ko" },
+  { name: "u_ja", tier: "any", volume: 0.028, captionClass: "caption sub", lang: "ja" },
+  { name: "u_ar", tier: "any", volume: 0.030, captionClass: "caption sub", lang: "ar" },
+  { name: "u_no", tier: "any", volume: 0.030, captionClass: "caption sub", lang: "no" },
+  // Six micro tracks: barely audible texture
+  { name: "t_en", tier: "any", volume: 0.008, captionClass: "caption micro", lang: "en" },
+  { name: "t_zh", tier: "any", volume: 0.008, captionClass: "caption micro", lang: "zh" },
+  { name: "t_ko", tier: "any", volume: 0.010, captionClass: "caption micro", lang: "ko" },
+  { name: "t_ja", tier: "any", volume: 0.008, captionClass: "caption micro", lang: "ja" },
+  { name: "t_ar", tier: "any", volume: 0.008, captionClass: "caption micro", lang: "ar" },
+  { name: "t_no", tier: "any", volume: 0.008, captionClass: "caption micro", lang: "no" },
   // Silent visual-only main-size track.
   { name: "sm_any", tier: "any", silent: true, volume: 0, captionClass: "caption main" },
   // Silent visual-only sub-size tracks.
@@ -579,6 +611,10 @@ function makeCaptionEl(clip, layerClass) {
   el.className = layerClass;
   if (lang === "ar") el.setAttribute("dir", "rtl");
   if (lang) el.setAttribute("lang", lang);
+  // 50/50 sans-serif vs serif per caption -- adds typographic variety to
+  // the same scene without changing meaning. Decision is made once on
+  // creation and stays for the caption's lifetime.
+  if (Math.random() < 0.5) el.setAttribute("data-fontstyle", "serif");
 
   // --- Path 1: pre-tagged tokens from clips.json ---
   if (Array.isArray(clip.tokens) && clip.tokens.length) {
@@ -1126,53 +1162,40 @@ function startWireLoop() {
   // Pick the nearest pair of edges between two rectangles (with a small pad)
   // and return the four corner points that form a quadrilateral connecting
   // those two edges. Result is a 4-point polygon ordered for SVG fill.
+  // Returns { quad, aSide: [p0,p1], bSide: [p0,p1] } where aSide/bSide are
+  // the two vertices that touch each box's edge. This lets the gradient
+  // endpoint be placed precisely on each edge midpoint.
   function nearestEdgeQuad(ar, br, pad) {
     const aL = ar.left - pad,  aR = ar.right + pad;
     const aT = ar.top - pad,   aB = ar.bottom + pad;
     const bL = br.left - pad,  bR = br.right + pad;
     const bT = br.top - pad,   bB = br.bottom + pad;
-    // Decide horizontal vs vertical relation.
-    let side; // "AR-BL" | "AL-BR" | "AB-BT" | "AT-BB"
+    let side;
     if (aR <= bL) side = "AR-BL";
     else if (bR <= aL) side = "AL-BR";
     else if (aB <= bT) side = "AB-BT";
     else if (bB <= aT) side = "AT-BB";
-    else return null;   // overlapping -> skip
+    else return null;
 
     if (side === "AR-BL") {
-      // a's right edge to b's left edge -> trapezoid linking the two vertical edges
-      // Clip the y-range to a's edge so the band attaches to a's whole right side
-      // and tapers to b's left side.
-      return [
-        { x: aR, y: aT },
-        { x: bL, y: bT },
-        { x: bL, y: bB },
-        { x: aR, y: aB },
-      ];
+      const aSide = [{ x: aR, y: aT }, { x: aR, y: aB }];
+      const bSide = [{ x: bL, y: bT }, { x: bL, y: bB }];
+      return { quad: [aSide[0], bSide[0], bSide[1], aSide[1]], aSide, bSide };
     }
     if (side === "AL-BR") {
-      return [
-        { x: bR, y: bT },
-        { x: aL, y: aT },
-        { x: aL, y: aB },
-        { x: bR, y: bB },
-      ];
+      const aSide = [{ x: aL, y: aT }, { x: aL, y: aB }];
+      const bSide = [{ x: bR, y: bT }, { x: bR, y: bB }];
+      return { quad: [bSide[0], aSide[0], aSide[1], bSide[1]], aSide, bSide };
     }
     if (side === "AB-BT") {
-      return [
-        { x: aL, y: aB },
-        { x: aR, y: aB },
-        { x: bR, y: bT },
-        { x: bL, y: bT },
-      ];
+      const aSide = [{ x: aL, y: aB }, { x: aR, y: aB }];
+      const bSide = [{ x: bL, y: bT }, { x: bR, y: bT }];
+      return { quad: [aSide[0], aSide[1], bSide[1], bSide[0]], aSide, bSide };
     }
     if (side === "AT-BB") {
-      return [
-        { x: aL, y: aT },
-        { x: bL, y: bB },
-        { x: bR, y: bB },
-        { x: aR, y: aT },
-      ];
+      const aSide = [{ x: aL, y: aT }, { x: aR, y: aT }];
+      const bSide = [{ x: bL, y: bB }, { x: bR, y: bB }];
+      return { quad: [aSide[0], bSide[0], bSide[1], aSide[1]], aSide, bSide };
     }
     return null;
   }
@@ -1519,113 +1542,152 @@ function startWireLoop() {
     // 1. Collect anchor points per category.
     const PAD = 2;
     const buckets = { ENTITY: [], ACTION: [], QUALITY: [], RELATION: [] };
-    const captionEls = document.getElementsByClassName("caption");
-    const wordOrder = new WeakMap();
-    const lastWordIdxByCap = new WeakMap();
-    for (let ci = 0; ci < captionEls.length; ci++) {
-      const cap = captionEls[ci];
-      const ws = cap.querySelectorAll(".word");
-      for (let wi = 0; wi < ws.length; wi++) wordOrder.set(ws[wi], wi);
-      lastWordIdxByCap.set(cap, ws.length - 1);
-    }
+    // Built alongside the bucket pass so the semantic step doesn't have to
+    // re-scan every .word DOM node. Maps "<file>|<ti>" -> word element for
+    // every word that has _similar info and is visible this frame.
+    const wordIndex = new Map();
 
+    // One pass through all .word[data-cat] nodes. Heavy info (parent caption,
+    // word index, fillOpacity, total .ch count) is cached on the word the
+    // first time we settle it; subsequent ticks just read those flat fields.
     const words = document.querySelectorAll(".word[data-cat]");
     for (const w of words) {
       const cat = w.dataset.cat;
       if (!buckets[cat]) continue;
-      const chs = w.querySelectorAll(".ch");
-      const chsOn = w.querySelectorAll(".ch.on");
-      if (chsOn.length === 0) continue;
-      // Skip words whose caption has begun sliding out -- any .ch.off-left
-      // means we're past peak visibility and anchors should release so the
-      // wires don't trail to a fading position.
-      if (w.querySelector(".ch.off-left")) continue;
-      const cap = w.closest(".caption");
-      if (!cap) continue;
-      const capId = cap.dataset.cap;
-      if (capId == null) continue;
 
-      // Cache the word's final bounding rect once all characters have
-      // arrived. While slide-in is still in progress, skip drawing wires for
-      // this word so we don't track a moving anchor (which causes the wire
-      // to jitter with each new character). The box itself can wait too.
+      // Settle cache: parent caption + word index + tier-based fillOpacity.
+      // These never change once the caption is built, so capture them once.
+      if (!w._cap) {
+        const cap = w.closest(".caption");
+        if (!cap) continue;
+        const capId = cap.dataset.cap;
+        if (capId == null) continue;
+        const ws = cap.querySelectorAll(".word");
+        let wIdx = -1;
+        for (let i = 0; i < ws.length; i++) if (ws[i] === w) { wIdx = i; break; }
+        if (wIdx < 0) continue;
+        let fillOpacity = 0.05;
+        if (cap.classList.contains("huge"))      fillOpacity = 0.45;
+        else if (cap.classList.contains("main")) fillOpacity = 0.32;
+        else if (cap.classList.contains("sub"))  fillOpacity = 0.14;
+        else                                      fillOpacity = 0.06;
+        w._cap = cap;
+        w._capId = +capId;
+        w._wordIdx = wIdx;
+        w._lastIdxInCap = ws.length - 1;
+        w._fillOp = fillOpacity;
+        w._chTotal = w.querySelectorAll(".ch").length;
+      }
+
+      // Cheap visibility check: how many .ch are .on? Done with childElement
+      // lookups counted directly on the word so we don't pay for two
+      // separate querySelectorAll calls.
+      let onCount = 0, offLeftCount = 0;
+      for (let c = w.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType !== 1 || !c.classList || !c.classList.contains("ch")) continue;
+        if (c.classList.contains("off-left")) offLeftCount++;
+        else if (c.classList.contains("on"))  onCount++;
+      }
+      if (onCount === 0) continue;
+      if (offLeftCount > 0) continue;
+
+      // _finalRect is set once when every char has arrived, and reused
+      // forever after. Use offsetLeft/Top + offsetWidth/Height so the
+      // recorded position is the WORD'S STATIC LAYOUT POSITION, not its
+      // current on-screen position (which would already include the
+      // mouse-parallax transform on the caption -- otherwise the box
+      // ends up shifted twice and never lines up with the glyphs).
       let r = w._finalRect;
       if (!r) {
-        if (chsOn.length < chs.length) continue;        // still sliding in
-        r = w.getBoundingClientRect();
-        if (r.width === 0 && r.height === 0) continue;
-        // Snapshot to a plain object so it doesn't react to layout shifts.
+        if (onCount < w._chTotal) continue;
+        const wWidth  = w.offsetWidth;
+        const wHeight = w.offsetHeight;
+        if (wWidth === 0 && wHeight === 0) continue;
+        const cap = w._cap;
+        // Walk up the offset chain -- caption is positioned absolutely
+        // inside #stage, word is inline-block inside the caption.
+        const left = cap.offsetLeft + w.offsetLeft;
+        const top  = cap.offsetTop  + w.offsetTop;
         w._finalRect = {
-          left: r.left, right: r.right, top: r.top, bottom: r.bottom,
-          width: r.width, height: r.height,
+          left, right: left + wWidth,
+          top,  bottom: top + wHeight,
+          width: wWidth, height: wHeight,
         };
         r = w._finalRect;
       }
       const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
-      const wIdx = wordOrder.get(w) ?? 0;
-      const lastIdx = lastWordIdxByCap.get(cap) ?? wIdx;
-      // Caption size class -> fill opacity for the box. Bigger caption =
-      // more solid fill; micro/silent are nearly invisible washes.
-      let fillOpacity = 0.05;
-      if (cap.classList.contains("main"))      fillOpacity = 0.32;
-      else if (cap.classList.contains("sub"))  fillOpacity = 0.14;
-      else                                      fillOpacity = 0.06;
-      w._fillOp = fillOpacity;
+      const cy = r.top  + r.height / 2;
+      const wIdx = w._wordIdx;
+      const lastIdx = w._lastIdxInCap;
+      const capId = w._capId;
       buckets[cat].push({
-        capId: +capId,
+        capId,
         wordIdx: wIdx,
         isFirstInCap: wIdx === 0,
         isLastInCap:  wIdx === lastIdx,
-        fillOpacity,
+        fillOpacity: w._fillOp,
         x: cx, y: cy, rect: r,
-        left:   { x: r.left   - PAD, y: cy },
-        right:  { x: r.right  + PAD, y: cy },
-        top:    { x: cx,             y: r.top    - PAD },
-        bottom: { x: cx,             y: r.bottom + PAD },
+        left:   { x: r.left  - PAD, y: cy },
+        right:  { x: r.right + PAD, y: cy },
+        top:    { x: cx,            y: r.top    - PAD },
+        bottom: { x: cx,            y: r.bottom + PAD },
       });
+      // Populate the semantic word index here so phase 7 doesn't have to
+      // walk the DOM again to rebuild it.
+      if (w._similar && w._clipFile && w._tokenIdx != null) {
+        wordIndex.set(`${w._clipFile}|${w._tokenIdx}`, w);
+      }
     }
 
     // 2. Draw the per-word box.
     for (const p of buckets.ENTITY) {
+      // Boxes are 10% shorter than the word's natural height; the slim
+      // top/bottom inset keeps the box from looming over the glyphs.
       const r = p.rect;
+      const SHRINK = 0.10;
+      const insetY = (r.height * SHRINK) / 2;
       const box = getRectBox("ENTITY", "entity-box");
       box.setAttribute("x", (r.left - PAD).toFixed(1));
-      box.setAttribute("y", (r.top - PAD).toFixed(1));
-      box.setAttribute("width", (r.width + PAD * 2).toFixed(1));
-      box.setAttribute("height", (r.height + PAD * 2).toFixed(1));
+      box.setAttribute("y", (r.top + insetY - PAD).toFixed(1));
+      box.setAttribute("width",  (r.width + PAD * 2).toFixed(1));
+      box.setAttribute("height", (r.height - insetY * 2 + PAD * 2).toFixed(1));
       box.setAttribute("rx", "0");
       box.setAttribute("fill-opacity", p.fillOpacity);
       p.usedPorts = new Set();
     }
     for (const p of buckets.ACTION) {
+      const SHRINK = 0.10;
+      const insetY = (p.rect.height * SHRINK) / 2;
       const r = p.rect;
       const box = getRectBox("ACTION", "action-box");
       box.setAttribute("x", (r.left - PAD).toFixed(1));
-      box.setAttribute("y", (r.top - PAD).toFixed(1));
-      box.setAttribute("width", (r.width + PAD * 2).toFixed(1));
-      box.setAttribute("height", (r.height + PAD * 2).toFixed(1));
+      box.setAttribute("y", (r.top + insetY - PAD).toFixed(1));
+      box.setAttribute("width",  (r.width + PAD * 2).toFixed(1));
+      box.setAttribute("height", (r.height - insetY * 2 + PAD * 2).toFixed(1));
       box.setAttribute("rx", (Math.min(r.height, r.width) * 0.45).toFixed(1));
       box.setAttribute("fill-opacity", p.fillOpacity);
       p.usedPorts = new Set();
     }
     for (const p of buckets.QUALITY) {
+      const SHRINK = 0.10;
       const r = p.rect;
       const e = getEllipseBox("QUALITY", "quality-box");
       e.setAttribute("cx", (r.left + r.width / 2).toFixed(1));
       e.setAttribute("cy", (r.top + r.height / 2).toFixed(1));
       e.setAttribute("rx", (r.width / 2 + PAD + 2).toFixed(1));
-      e.setAttribute("ry", (r.height / 2 + PAD).toFixed(1));
+      e.setAttribute("ry", (r.height / 2 * (1 - SHRINK) + PAD).toFixed(1));
       e.setAttribute("fill-opacity", p.fillOpacity);
       p.usedPorts = new Set();
     }
     for (const p of buckets.RELATION) {
+      const SHRINK = 0.10;
+      const insetY = (p.rect.height * SHRINK) / 2;
       const r = p.rect;
       const box = getRectBox("RELATION", "relation-box");
       box.setAttribute("x", (r.left - PAD).toFixed(1));
-      box.setAttribute("y", (r.top - PAD).toFixed(1));
-      box.setAttribute("width", (r.width + PAD * 2).toFixed(1));
-      box.setAttribute("height", (r.height + PAD * 2).toFixed(1));
+      box.setAttribute("y", (r.top + insetY - PAD).toFixed(1));
+      box.setAttribute("width",  (r.width + PAD * 2).toFixed(1));
+      box.setAttribute("height", (r.height - insetY * 2 + PAD * 2).toFixed(1));
       box.setAttribute("rx", "0");
       box.setAttribute("fill-opacity", p.fillOpacity);
       p.usedPorts = new Set();
@@ -1814,33 +1876,19 @@ function startWireLoop() {
       }
     }
 
-    // 7. Semantic arrows: mutual cross-language meaning links. Each visible
-    //    word has a precomputed `_similar` list pointing at (file, ti).
-    //    For every pair where both endpoints are on screen, draw a single
-    //    yellow dashed wire with arrow markers on both ends.
-    const visibleWords = stage.getElementsByClassName("word");
-    // Build a (file::ti) -> {word, rect, capId} index of currently anchored words.
-    const wordIndex = new Map();
-    for (let i = 0; i < visibleWords.length; i++) {
-      const w = visibleWords[i];
-      if (!w._clipFile || w._tokenIdx == null) continue;
-      if (!w._finalRect) continue;          // not yet settled
-      if (w.querySelector(".ch.off-left")) continue;   // sliding out
-      if (!w.querySelector(".ch.on")) continue;
-      wordIndex.set(`${w._clipFile}|${w._tokenIdx}`, w);
-    }
+    // 7. Semantic arrows: mutual cross-language meaning links. The
+    //    wordIndex was already populated during the bucket pass above.
 
-    // 7a. Compute alive pair keys with their geometry. Each pair becomes a
-    // 4-point polygon connecting the nearest edges of the two word boxes.
-    // Track which words anchor which pairs so the box fill can match the
-    // pair's wipe progress.
+    // 7a. Compute alive pair keys. We only build new semantic geometry
+    // when no other category is in focus (or SEMANTIC itself is in focus);
+    // otherwise we let every existing pair exit so the screen stays clean
+    // while another category is being inspected.
     const SEM_PAD = 5;
     const semAlive = new Map();   // pk -> {...}
-    // word -> {role: "A"|"B", pk}, the "best" pair for that word (used to
-    // pick the box's effective opacity). A word in many pairs picks its
-    // most-progressed pair.
     const semWordRoles = new Map();
-    for (const [aKey, aWord] of wordIndex) {
+    const focusCatNow = document.body.dataset.focusCat;
+    const semSuppressed = focusCatNow && focusCatNow !== "SEMANTIC";
+    for (const [aKey, aWord] of (semSuppressed ? [] : wordIndex)) {
       const sims = aWord._similar;
       if (!sims) continue;
       for (const s of sims) {
@@ -1851,18 +1899,22 @@ function startWireLoop() {
         const pk = semPairKey(aWord._clipFile, aWord._tokenIdx, s.file, s.ti);
         if (semAlive.has(pk)) continue;
         const ar = aWord._finalRect, br = bWord._finalRect;
-        const quad = nearestEdgeQuad(ar, br, SEM_PAD);
-        if (!quad) continue;
+        const eq = nearestEdgeQuad(ar, br, SEM_PAD);
+        if (!eq) continue;
+        const { quad, aSide, bSide } = eq;
         const dStr = "M " + quad.map(p => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" L ") + " Z";
-        const acx = ar.left + ar.width / 2;
-        const acy = ar.top + ar.height / 2;
-        const bcx = br.left + br.width / 2;
-        const bcy = br.top + br.height / 2;
+        // Gradient endpoints sit exactly on each box's edge midpoint, so
+        // stop 0 alpha == a-box solid fill and stop end alpha == b-box solid
+        // fill. No seam between box and band.
+        const ax = (aSide[0].x + aSide[1].x) / 2;
+        const ay = (aSide[0].y + aSide[1].y) / 2;
+        const bx = (bSide[0].x + bSide[1].x) / 2;
+        const by = (bSide[0].y + bSide[1].y) / 2;
         semAlive.set(pk, {
           d: dStr,
           opA: aWord._fillOp ?? 0.5,
           opB: bWord._fillOp ?? 0.5,
-          ax: acx, ay: acy, bx: bcx, by: bcy,
+          ax, ay, bx, by,
           aWord, bWord,
         });
         if (!semWordRoles.has(aWord)) semWordRoles.set(aWord, { role: "A", pk });
@@ -1897,15 +1949,22 @@ function startWireLoop() {
           g.appendChild(s);
           stops.push(s);
         }
-        defs.appendChild(g);
+        defsBg.appendChild(g);
         const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
         path.setAttribute("class", "semantic");
         path.setAttribute("d", info.d);
         path.style.fill = `url(#${id})`;
-        svg.appendChild(path);
+        // Render in the background layer so the band sits *behind* caption
+        // text, like the boxes. Append before any boxes so boxes draw on top
+        // of the band where they overlap (band -> box -> text reads cleanly).
+        svgBg.insertBefore(path, svgBg.firstChild);
+        // Stagger enter starts so a freshly-focused screen doesn't fire
+        // dozens of wipes on the same frame -- each pair starts up to
+        // 1.5s after this tick.
+        const stagger = (semanticWires.size % 16) * 100;
         rec = {
           path, grad: { el: g, id, stops },
-          phase: "enter", phaseStartedAt: now,
+          phase: "enter", phaseStartedAt: now + stagger,
           d: info.d, dirSig: "",
         };
         semanticWires.set(pk, rec);
@@ -1967,16 +2026,23 @@ function startWireLoop() {
       const h1 = Math.min(1, head + eps);
       const reveal = Math.max(0, Math.min(1, (head - 0.75) / 0.25));
       const tailAlpha = opB * reveal;
-      const stops = rec.grad.stops;
-      stops[0].setAttribute("offset", "0");
-      stops[0].setAttribute("stop-opacity", opA.toFixed(2));
-      stops[1].setAttribute("offset", h0.toFixed(3));
-      stops[1].setAttribute("stop-opacity", opA.toFixed(2));
-      stops[2].setAttribute("offset", h1.toFixed(3));
-      stops[2].setAttribute("stop-opacity", tailAlpha.toFixed(2));
-      stops[3].setAttribute("offset", "1");
-      stops[3].setAttribute("stop-opacity", tailAlpha.toFixed(2));
-      // Cache progress so the box-drawing pass below can match it.
+      // Skip DOM writes when the live phase has settled: stops never move
+      // anymore, but a naive RAF would still call setAttribute every tick
+      // and force the SVG renderer to repaint the gradient. Cache the last
+      // head we wrote and bail when it hasn't budged.
+      if (rec.lastHead !== head || rec.lastTail !== tailAlpha) {
+        const stops = rec.grad.stops;
+        stops[0].setAttribute("offset", "0");
+        stops[0].setAttribute("stop-opacity", opA.toFixed(2));
+        stops[1].setAttribute("offset", h0.toFixed(3));
+        stops[1].setAttribute("stop-opacity", opA.toFixed(2));
+        stops[2].setAttribute("offset", h1.toFixed(3));
+        stops[2].setAttribute("stop-opacity", tailAlpha.toFixed(2));
+        stops[3].setAttribute("offset", "1");
+        stops[3].setAttribute("stop-opacity", tailAlpha.toFixed(2));
+        rec.lastHead = head;
+        rec.lastTail = tailAlpha;
+      }
       rec.head = head;
       rec.tailAlpha = tailAlpha;
     }
@@ -1991,16 +2057,24 @@ function startWireLoop() {
       if (!r) continue;
       const rec = semanticWires.get(info.pk);
       if (!rec) continue;
+      const SHRINK = 0.10;
+      const insetY = (r.height * SHRINK) / 2;
       const op = info.role === "A"
-        ? (rec.opA ?? 0.5)         // a-side stops are pinned at this alpha
-        : (rec.tailAlpha ?? 0);    // b-side rises from 0 -> opB during the wipe
+        ? (rec.opA ?? 0.5)
+        : (rec.tailAlpha ?? 0);
       const box = getSemanticBox();
       box.setAttribute("x", (r.left - SEM_PAD).toFixed(1));
-      box.setAttribute("y", (r.top - SEM_PAD).toFixed(1));
-      box.setAttribute("width", (r.width + SEM_PAD * 2).toFixed(1));
-      box.setAttribute("height", (r.height + SEM_PAD * 2).toFixed(1));
-      box.style.fill = "#ff5e00";
-      box.setAttribute("fill-opacity", Math.max(0, Math.min(1, op)).toFixed(2));
+      box.setAttribute("y", (r.top + insetY - SEM_PAD).toFixed(1));
+      box.setAttribute("width",  (r.width + SEM_PAD * 2).toFixed(1));
+      box.setAttribute("height", (r.height - insetY * 2 + SEM_PAD * 2).toFixed(1));
+      const fo = Math.max(0, Math.min(1, op)).toFixed(2);
+      // Avoid re-setting fill / fill-opacity if they're already correct;
+      // pool boxes get reused frame to frame.
+      if (box._lastFo !== fo) {
+        box.style.fill = "#ff5e00";
+        box.setAttribute("fill-opacity", fo);
+        box._lastFo = fo;
+      }
     }
 
     hideExtras();
@@ -2128,6 +2202,9 @@ function stopPoemBackground() {
   if (poemBgController) poemBgController.stop();
 }
 
+// Mouse-driven parallax: smooth pointer position into rotateX/Y angles
+// applied to every caption via CSS variables on #stage. The wires layer
+// stays flat so captions appear to float above the wire grid.
 function startStats() {
   const el = document.getElementById("stats");
   let frames = 0;
@@ -2354,8 +2431,6 @@ function refreshGlossLabels() {
     label.textContent = w._ko;
     label.style.left = `${left}px`;
     label.style.top  = `${top}px`;
-    // Tie label visibility to the caption's size tier: main captions get
-    // a fully opaque label, sub a faded one, micro/silent barely visible.
     const op = glossOpacityFor(w._fillOp ?? 0.06);
     label.style.setProperty("--gloss-op", op.toFixed(2));
     label._targetOpacity = op;
