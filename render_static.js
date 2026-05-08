@@ -222,12 +222,19 @@ const PRESETS = {
     outName: "poster_sample",
   },
   full: {
-    // A3 at 600 dpi. Page rendered at width/scale; everything ends up
-    // 2.25x larger relative to the final canvas (1.5x of the previous run).
+    // A3 portrait, 600 dpi. Page rendered at width/scale; everything
+    // ends up 2.25x larger relative to the final canvas.
     width: 7016, height: 9933,
     captions: 1100, semantic: 80,
     scale: 2.25,
     outName: "poster_full",
+  },
+  full_landscape: {
+    // A3 landscape, 600 dpi.
+    width: 9933, height: 7016,
+    captions: 1100, semantic: 80,
+    scale: 2.25,
+    outName: "poster_full_landscape",
   },
 };
 

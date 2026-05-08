@@ -113,7 +113,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 3vh 1vw 0.5vh;
+    padding: 3vh 0.6vw 0.5vh;
     box-sizing: border-box;
     font-family: "Bebas Neue", "Impact", "Anton Black", "Arial Black", sans-serif;
     font-weight: 400;
@@ -134,20 +134,22 @@
     transform-origin: center center;
   }
   #poem-bg .poem {
-    /* Six fixed lines, each justified end-to-end so the words spread across
-       the full viewport width. JS picks the font-size that maxes out
-       within the available height. */
-    width: 100%;
+    /* Six fixed lines, each justified end-to-end. A tiny inner gutter
+       keeps trailing punctuation from clipping at the viewport edge
+       under text-align-last: justify. */
+    width: calc(100% - 24px);
     will-change: contents;
   }
   #poem-bg .poem .pl {
     display: block;
     text-align: justify;
     text-align-last: justify;
-    /* `text-align-last: justify` only works when the line wraps -- since
-       each line has only one visual row, we rely on `text-justify` and the
-       extra trailing space inserted by JS to force the spread. */
     text-justify: inter-word;
+    /* Allow wrap so `text-align-last: justify` actually engages (it only
+       takes effect on lines that wrap or when `text-align: justify`
+       chooses to spread). The fit() routine measures each .pl's height
+       to confirm it stays a single row; if it wrapped, the height grew
+       and the search backs off. */
     white-space: normal;
   }
   #poem-bg .poem .pw {
@@ -2347,19 +2349,26 @@ function startPoemBackground() {
   // horizontal axis stays at natural width so justify still spreads the
   // words edge-to-edge.
   function fit() {
-    block.style.transform = "";          // measure undistorted
+    block.style.transform = "";
+    // Width comes from .poem's CSS rule (calc(100% - 60px)), so the
+    // poem block has its own breathing room from the viewport edge.
     const maxW = root.clientWidth;
     const maxH = root.clientHeight;
+    const lines = Array.from(block.querySelectorAll(".pl"));
+    function fits(fs) {
+      block.style.fontSize = fs + "px";
+      // Every .pl must stay a single row (height ≈ fs * line-height).
+      const lineH = fs * 0.78 * 1.4;   // generous threshold above one row
+      for (const ln of lines) {
+        if (ln.offsetHeight > lineH) return false;
+      }
+      return block.offsetHeight <= maxH && block.scrollWidth <= maxW;
+    }
     let lo = 20, hi = 800, best = 20;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      block.style.fontSize = mid + "px";
-      if (block.scrollWidth <= maxW && block.offsetHeight <= maxH) {
-        best = mid;
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
+      if (fits(mid)) { best = mid; lo = mid + 1; }
+      else { hi = mid - 1; }
     }
     block.style.fontSize = best + "px";
     const naturalH = block.offsetHeight;
