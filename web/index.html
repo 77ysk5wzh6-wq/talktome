@@ -6,7 +6,7 @@
 <!-- Serif fallbacks per script. The browser pulls them from Google Fonts. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Nanum+Myeongjo:wght@400;700&family=Noto+Serif+KR:wght@400;600&family=Noto+Serif+JP:wght@400;600&family=Noto+Serif+SC:wght@400;600&family=Noto+Naskh+Arabic:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Nanum+Myeongjo:wght@400;700&family=Noto+Serif+KR:wght@400;600&family=Noto+Serif+JP:wght@400;600&family=Noto+Serif+SC:wght@400;600&family=Noto+Naskh+Arabic:wght@400;600&display=swap" rel="stylesheet">
 <style>
   :root { color-scheme: light; }
   html, body {
@@ -96,37 +96,63 @@
     z-index: 1;
     overflow: visible;
   }
-  /* Background poem layer: each word fills the entire viewport and flashes
-     for a fraction of a second, then is replaced by the next word. The
-     container is a single full-screen frame; the active word lives inside. */
+  /* Background poem layer: when the toggle is on, the full quatrain is
+     shown at once -- one continuous run that wraps naturally to the
+     viewport width. JS picks the largest font-size that fits the height. */
   #poem-bg {
     position: fixed;
     left: 0; top: 0;
     width: 100vw; height: 100vh;
     pointer-events: none;
-    z-index: 0;
+    /* Sits above every interactive layer; mix-blend-mode is applied here
+       so the layer composites against the captions/wires/boxes underneath
+       instead of stacking on top of them. */
+    z-index: 15;
     overflow: hidden;
+    mix-blend-mode: difference;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-family: "Impact", "Anton Black", "Arial Black", "Helvetica Neue", sans-serif;
-    font-weight: 900;
-    color: #000;
+    padding: 3vh 1vw 0.5vh;
+    box-sizing: border-box;
+    font-family: "Bebas Neue", "Impact", "Anton Black", "Arial Black", sans-serif;
+    font-weight: 400;
+    /* Glyphs are painted white but composed via mix-blend-mode: difference
+       on the parent. Against the white page background that yields visible
+       black (255 - 255 = 0), so the poem reads as black; against any
+       coloured / dark element underneath it inverts to that colour's
+       complement, so captions and wires are not smothered. */
+    color: #fff;
     text-transform: uppercase;
-    line-height: 0.85;
-    letter-spacing: -0.03em;
+    /* Bebas Neue has very short ascenders/descenders, so a tight line-height
+       leaves no leading. JS then stretches the block vertically with
+       scaleY() to fill any remaining viewport height. */
+    line-height: 0.78;
+    letter-spacing: 0.01em;
   }
-  #poem-bg .pw {
-    /* Each word is one giant centred glyph block. JS sets font-size at
-       runtime so the word actually fills the screen even for short words. */
+  #poem-bg .poem {
+    transform-origin: center center;
+  }
+  #poem-bg .poem {
+    /* Six fixed lines, each justified end-to-end so the words spread across
+       the full viewport width. JS picks the font-size that maxes out
+       within the available height. */
+    width: 100%;
+    will-change: contents;
+  }
+  #poem-bg .poem .pl {
     display: block;
-    text-align: center;
-    white-space: nowrap;
-    opacity: 0;
-    will-change: opacity, transform;
+    text-align: justify;
+    text-align-last: justify;
+    /* `text-align-last: justify` only works when the line wraps -- since
+       each line has only one visual row, we rely on `text-justify` and the
+       extra trailing space inserted by JS to force the spread. */
+    text-justify: inter-word;
+    white-space: normal;
   }
-  /* Flash sequence is generated in JS per-word so the rhythm changes
-     every time -- no CSS @keyframes here. */
+  #poem-bg .poem .pw {
+    display: inline-block;
+  }
   #wires path {
     fill: none;
     stroke-width: 0.22;
@@ -168,6 +194,18 @@
     stroke: none;
     /* fill is set inline at runtime to the pair's <linearGradient> so the
        box colour matches the connecting band exactly. */
+  }
+  /* Cosine-similarity label drawn at the centre of each semantic band,
+     rotated to follow the band's direction. */
+  #wires-bg text.sem-sim {
+    fill: #ff5e00;
+    font: 8px/1 "Helvetica Neue", "Arial", sans-serif;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    user-select: none;
+    pointer-events: none;
+    text-anchor: middle;
+    dominant-baseline: middle;
   }
 
   /* === Category isolation: legend buttons toggle data-focus-cat on body.
@@ -214,11 +252,13 @@
   body[data-focus-cat="SEMANTIC"] .caption { opacity: 0.55; }
   body[data-focus-cat="SEMANTIC"] #wires path.semantic,
   body[data-focus-cat="SEMANTIC"] #wires-bg path.semantic,
-  body[data-focus-cat="SEMANTIC"] #wires-bg rect.semantic-box { opacity: 1; }
+  body[data-focus-cat="SEMANTIC"] #wires-bg rect.semantic-box,
+  body[data-focus-cat="SEMANTIC"] #wires-bg text.sem-sim { opacity: 1; }
   /* Generic faded layer also needs to dim the bg SVG when another
      category is in focus (it isn't covered by the #wires-only rules above). */
   body[data-focus-cat] #wires-bg path,
-  body[data-focus-cat] #wires-bg rect { opacity: 0.07; }
+  body[data-focus-cat] #wires-bg rect,
+  body[data-focus-cat] #wires-bg text { opacity: 0.07; }
 
   /* Korean gloss labels. Visible whenever a category focus is active
      (freeze isn't required). Each label slides down + fades in on entry,
@@ -368,13 +408,15 @@ const TRACK_LAYERS = [
   { name: "t_ja", tier: "any", volume: 0.008, captionClass: "caption micro", lang: "ja" },
   { name: "t_ar", tier: "any", volume: 0.008, captionClass: "caption micro", lang: "ar" },
   { name: "t_no", tier: "any", volume: 0.008, captionClass: "caption micro", lang: "no" },
-  // Silent visual-only main-size track.
-  { name: "sm_any", tier: "any", silent: true, volume: 0, captionClass: "caption main" },
+  // Silent visual-only main-size tracks.
+  { name: "sm_any",  tier: "any", silent: true, volume: 0, captionClass: "caption main" },
+  { name: "sm_any2", tier: "any", silent: true, volume: 0, captionClass: "caption main" },
   // Silent visual-only sub-size tracks.
   { name: "ss_en", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "en" },
   { name: "ss_ar", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "ar" },
   { name: "ss_no", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "no" },
   { name: "ss_ja", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "ja" },
+  { name: "ss_any", tier: "any", silent: true, volume: 0, captionClass: "caption sub" },
   // Silent micro tracks.
   { name: "s_en", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "en" },
   { name: "s_zh", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "zh" },
@@ -737,9 +779,11 @@ function placeCaption(el) {
   const cellsX = Math.max(1, Math.floor((maxX - SAFE_MARGIN_PX) / GRID_CELL_W) + 1);
   const cellsY = Math.max(1, Math.floor((maxY - SAFE_MARGIN_PX) / GRID_CELL_H) + 1);
 
-  // Existing caption rects so we don't drop on top of them.
+  // Existing caption rects so we don't drop on top of them. Track huge
+  // captions separately so a new huge can keep extra distance from them.
   const liveCaptions = stage.getElementsByClassName("caption");
   const occupiedRects = [];
+  const hugeRects = [];
   for (let i = 0; i < liveCaptions.length; i++) {
     const c = liveCaptions[i];
     if (c === el) continue;
@@ -747,26 +791,82 @@ function placeCaption(el) {
     const r = c.getBoundingClientRect();
     if (r.width === 0 && r.height === 0) continue;
     occupiedRects.push(r);
+    if (c.classList.contains("huge")) hugeRects.push(r);
   }
 
-  function rectOverlaps(x, y) {
-    const PAD = 4;
+  const isHuge = el.classList.contains("huge");
+  // Extra clearance huge captions try to keep from each other.
+  const HUGE_GAP = 120;
+
+  function rectOverlaps(x, y, pad) {
     for (const r of occupiedRects) {
-      if (x < r.right + PAD && x + w > r.left - PAD &&
-          y < r.bottom + PAD && y + h > r.top - PAD) return true;
+      if (x < r.right + pad && x + w > r.left - pad &&
+          y < r.bottom + pad && y + h > r.top - pad) return true;
     }
     return false;
   }
+  // Min distance from candidate centre to nearest huge centre. Used as a
+  // score so we pick the farthest-from-other-huge spot when placing a huge.
+  function minHugeDist(x, y) {
+    if (!hugeRects.length) return Infinity;
+    const cx = x + w / 2, cy = y + h / 2;
+    let best = Infinity;
+    for (const r of hugeRects) {
+      const rx = r.left + r.width / 2;
+      const ry = r.top + r.height / 2;
+      const d = Math.hypot(cx - rx, cy - ry);
+      if (d < best) best = d;
+    }
+    return best;
+  }
 
-  // Try N random grid cells; first non-overlapping one wins.
-  let chosenX = -1, chosenY = -1;
+  let chosenX = -1, chosenY = -1, chosenScore = -1;
   for (let t = 0; t < GRID_PLACEMENT_TRIES; t++) {
     const cx = Math.floor(Math.random() * cellsX);
     const cy = Math.floor(Math.random() * cellsY);
     const x = SAFE_MARGIN_PX + cx * GRID_CELL_W;
     const y = SAFE_MARGIN_PX + cy * GRID_CELL_H;
     if (x > maxX || y > maxY) continue;
-    if (!rectOverlaps(x, y)) { chosenX = x; chosenY = y; break; }
+    // For huge captions, treat other huge rects with an inflated pad so the
+    // overlap test rejects spots that are merely near another huge, not
+    // just literally touching it.
+    if (isHuge && hugeRects.length) {
+      let nearHuge = false;
+      for (const r of hugeRects) {
+        if (x < r.right + HUGE_GAP && x + w > r.left - HUGE_GAP &&
+            y < r.bottom + HUGE_GAP && y + h > r.top - HUGE_GAP) {
+          nearHuge = true; break;
+        }
+      }
+      if (nearHuge) continue;
+    }
+    if (rectOverlaps(x, y, 4)) continue;
+    if (isHuge) {
+      // Among acceptable candidates, prefer the one furthest from existing
+      // huge captions. Keep sampling until we run out of tries.
+      const score = minHugeDist(x, y);
+      if (score > chosenScore) {
+        chosenScore = score; chosenX = x; chosenY = y;
+      }
+    } else {
+      chosenX = x; chosenY = y;
+      break;
+    }
+  }
+  if (chosenX < 0) {
+    // First, retry without the huge-gap inflation: any non-overlapping
+    // grid cell will do before falling back to a hard collision.
+    if (isHuge) {
+      for (let t = 0; t < GRID_PLACEMENT_TRIES; t++) {
+        const cx = Math.floor(Math.random() * cellsX);
+        const cy = Math.floor(Math.random() * cellsY);
+        const x = SAFE_MARGIN_PX + cx * GRID_CELL_W;
+        const y = SAFE_MARGIN_PX + cy * GRID_CELL_H;
+        if (x > maxX || y > maxY) continue;
+        if (rectOverlaps(x, y, 4)) continue;
+        chosenX = x; chosenY = y; break;
+      }
+    }
   }
   if (chosenX < 0) {
     // Grid saturated -> fall back to a random spot, still snapped to grid.
@@ -1165,37 +1265,51 @@ function startWireLoop() {
   // Returns { quad, aSide: [p0,p1], bSide: [p0,p1] } where aSide/bSide are
   // the two vertices that touch each box's edge. This lets the gradient
   // endpoint be placed precisely on each edge midpoint.
-  function nearestEdgeQuad(ar, br, pad) {
+  function nearestEdgeQuad(ar, br, pad, prevSide) {
     const aL = ar.left - pad,  aR = ar.right + pad;
     const aT = ar.top - pad,   aB = ar.bottom + pad;
     const bL = br.left - pad,  bR = br.right + pad;
     const bT = br.top - pad,   bB = br.bottom + pad;
-    let side;
-    if (aR <= bL) side = "AR-BL";
-    else if (bR <= aL) side = "AL-BR";
-    else if (aB <= bT) side = "AB-BT";
-    else if (bB <= aT) side = "AT-BB";
-    else return null;
+    // Signed gap on each axis: positive = boxes separated along that side.
+    // Always pick the side with the largest gap, even if all gaps are
+    // negative (boxes overlap) -- that way we never return null and the
+    // band can't blink off when boxes momentarily overlap.
+    const gaps = {
+      "AR-BL": bL - aR,
+      "AL-BR": aL - bR,
+      "AB-BT": bT - aB,
+      "AT-BB": aT - bB,
+    };
+    let side = null, bestGap = -Infinity;
+    for (const k in gaps) {
+      if (gaps[k] > bestGap) { bestGap = gaps[k]; side = k; }
+    }
+    // Hysteresis: stick with the previous side unless another side is
+    // meaningfully better (>4px). Stops single-frame side hopping when two
+    // candidate gaps are nearly equal.
+    if (prevSide && prevSide in gaps) {
+      if (gaps[prevSide] >= bestGap - 4) side = prevSide;
+    }
 
     if (side === "AR-BL") {
       const aSide = [{ x: aR, y: aT }, { x: aR, y: aB }];
       const bSide = [{ x: bL, y: bT }, { x: bL, y: bB }];
-      return { quad: [aSide[0], bSide[0], bSide[1], aSide[1]], aSide, bSide };
+      return { side, quad: [aSide[0], bSide[0], bSide[1], aSide[1]], aSide, bSide };
     }
     if (side === "AL-BR") {
       const aSide = [{ x: aL, y: aT }, { x: aL, y: aB }];
       const bSide = [{ x: bR, y: bT }, { x: bR, y: bB }];
-      return { quad: [bSide[0], aSide[0], aSide[1], bSide[1]], aSide, bSide };
+      return { side, quad: [bSide[0], aSide[0], aSide[1], bSide[1]], aSide, bSide };
     }
     if (side === "AB-BT") {
       const aSide = [{ x: aL, y: aB }, { x: aR, y: aB }];
       const bSide = [{ x: bL, y: bT }, { x: bR, y: bT }];
-      return { quad: [aSide[0], aSide[1], bSide[1], bSide[0]], aSide, bSide };
+      return { side, quad: [aSide[0], aSide[1], bSide[1], bSide[0]], aSide, bSide };
     }
     if (side === "AT-BB") {
       const aSide = [{ x: aL, y: aT }, { x: aR, y: aT }];
       const bSide = [{ x: bL, y: bB }, { x: bR, y: bB }];
-      return { quad: [aSide[0], bSide[0], bSide[1], aSide[1]], aSide, bSide };
+      return { side, quad: [aSide[0], bSide[0], bSide[1], aSide[1]], aSide, bSide };
     }
     return null;
   }
@@ -1898,10 +2012,23 @@ function startWireLoop() {
         if (!bWord) continue;
         const pk = semPairKey(aWord._clipFile, aWord._tokenIdx, s.file, s.ti);
         if (semAlive.has(pk)) continue;
-        const ar = aWord._finalRect, br = bWord._finalRect;
-        const eq = nearestEdgeQuad(ar, br, SEM_PAD);
+        // Match the rect the semantic box actually draws: vertical inset of
+        // (height * SHRINK)/2, same SHRINK constant used in phase 7d.
+        // Without this, the band's a/b sides overshoot the box vertically.
+        const SHRINK = 0.10;
+        const arRaw = aWord._finalRect, brRaw = bWord._finalRect;
+        const aIns = (arRaw.height * SHRINK) / 2;
+        const bIns = (brRaw.height * SHRINK) / 2;
+        const ar = { left: arRaw.left, right: arRaw.right,
+                     top: arRaw.top + aIns, bottom: arRaw.bottom - aIns,
+                     width: arRaw.width, height: arRaw.height - aIns * 2 };
+        const br = { left: brRaw.left, right: brRaw.right,
+                     top: brRaw.top + bIns, bottom: brRaw.bottom - bIns,
+                     width: brRaw.width, height: brRaw.height - bIns * 2 };
+        const prevSide = semanticWires.get(pk)?.lastSide ?? null;
+        const eq = nearestEdgeQuad(ar, br, SEM_PAD, prevSide);
         if (!eq) continue;
-        const { quad, aSide, bSide } = eq;
+        const { quad, aSide, bSide, side } = eq;
         const dStr = "M " + quad.map(p => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" L ") + " Z";
         // Gradient endpoints sit exactly on each box's edge midpoint, so
         // stop 0 alpha == a-box solid fill and stop end alpha == b-box solid
@@ -1916,6 +2043,8 @@ function startWireLoop() {
           opB: bWord._fillOp ?? 0.5,
           ax, ay, bx, by,
           aWord, bWord,
+          sim: typeof s.sim === "number" ? s.sim : null,
+          side,
         });
         if (!semWordRoles.has(aWord)) semWordRoles.set(aWord, { role: "A", pk });
         if (!semWordRoles.has(bWord)) semWordRoles.set(bWord, { role: "B", pk });
@@ -1962,10 +2091,20 @@ function startWireLoop() {
         // dozens of wipes on the same frame -- each pair starts up to
         // 1.5s after this tick.
         const stagger = (semanticWires.size % 16) * 100;
+        // Cosine-similarity label, drawn on the bg SVG so it sits in the
+        // same layer as the band but above it (text appended last).
+        let simEl = null;
+        if (typeof info.sim === "number") {
+          simEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          simEl.setAttribute("class", "sem-sim");
+          simEl.textContent = "cos sim " + info.sim.toFixed(2);
+          svgBg.appendChild(simEl);
+        }
         rec = {
           path, grad: { el: g, id, stops },
           phase: "enter", phaseStartedAt: now + stagger,
-          d: info.d, dirSig: "",
+          d: info.d, dirSig: "", sim: info.sim ?? null,
+          simEl, simSig: "",
         };
         semanticWires.set(pk, rec);
       } else {
@@ -1978,6 +2117,9 @@ function startWireLoop() {
           rec.d = info.d;
         }
       }
+      // Remember which side was picked this frame so the next call to
+      // nearestEdgeQuad can apply hysteresis and avoid side-hopping.
+      rec.lastSide = info.side;
       // Update gradient direction whenever endpoints move.
       const dirSig = `${info.ax.toFixed(0)}|${info.ay.toFixed(0)}|${info.bx.toFixed(0)}|${info.by.toFixed(0)}`;
       if (rec.dirSig !== dirSig) {
@@ -1986,6 +2128,23 @@ function startWireLoop() {
         rec.grad.el.setAttribute("x2", info.bx.toFixed(1));
         rec.grad.el.setAttribute("y2", info.by.toFixed(1));
         rec.dirSig = dirSig;
+      }
+      // Sim label rides the band's midpoint, rotated to follow direction.
+      if (rec.simEl) {
+        const mx = (info.ax + info.bx) / 2;
+        const my = (info.ay + info.by) / 2;
+        let deg = Math.atan2(info.by - info.ay, info.bx - info.ax) * 180 / Math.PI;
+        // Keep text upright: if it would read upside-down, flip 180 so it
+        // still follows the band axis but stays right-side up.
+        if (deg > 90) deg -= 180;
+        else if (deg < -90) deg += 180;
+        const sig = `${mx.toFixed(0)}|${my.toFixed(0)}|${deg.toFixed(0)}`;
+        if (rec.simSig !== sig) {
+          rec.simEl.setAttribute("x", mx.toFixed(1));
+          rec.simEl.setAttribute("y", my.toFixed(1));
+          rec.simEl.setAttribute("transform", `rotate(${deg.toFixed(1)} ${mx.toFixed(1)} ${my.toFixed(1)})`);
+          rec.simSig = sig;
+        }
       }
       rec.opA = semStopOpacity(info.opA);
       rec.opB = semStopOpacity(info.opB);
@@ -2011,12 +2170,21 @@ function startWireLoop() {
         head = 1 - easeInCubic(t);
         if (t >= 1) {
           rec.path.remove();
+          if (rec.simEl) rec.simEl.remove();
           if (rec.grad) rec.grad.el.remove();
           semanticWires.delete(pk);
           continue;
         }
       } else {
         head = 1;
+      }
+      // Sim label fades in with the band reveal; vanishes during exit.
+      if (rec.simEl) {
+        const a = (head * head).toFixed(3);
+        if (rec.simAlphaSig !== a) {
+          rec.simEl.setAttribute("fill-opacity", a);
+          rec.simAlphaSig = a;
+        }
       }
 
       const opA = rec.opA ?? 0.5;
@@ -2102,96 +2270,84 @@ function startWireLoop() {
   requestAnimationFrame(safeTick);
 }
 
-// === Stats panel (fps, dom nodes, heap) ===
-// Background poem: one quatrain laid out word-by-word in a huge condensed
-// face. Each word appears every BG_POEM_INTERVAL_MS, with a hard staccato
-// flicker, until all words are visible -- then the cycle repeats.
-const BG_POEM = (
-  "Ah Love! could thou and I with Fate conspire " +
-  "To grasp this sorry Scheme of Things entire, " +
-  "Would not we shatter it to bits - and then " +
-  "Re-mould it nearer to the Heart's Desire!"
-).split(/\s+/);
-const BG_POEM_INTERVAL_MS = 1000;
+// Background poem: simple on/off toggle. The full quatrain sits in six
+// fixed lines, each justified edge-to-edge across the viewport. JS only
+// handles font-size sizing; the button just shows/hides the layer.
+const BG_POEM_LINES = [
+  "Ah Love! could thou and I with",
+  "Fate conspire To grasp this",
+  "sorry Scheme of Things entire,",
+  "Would not we shatter it to",
+  "bits - and then Re-mould it",
+  "nearer to the Heart's Desire!",
+];
 
-// Module-scope handle so the legend toggle can flip the loop on/off.
 let poemBgController = null;
 
 function startPoemBackground() {
-  if (poemBgController) return;   // idempotent
+  if (poemBgController) return;
   const root = document.getElementById("poem-bg");
   if (!root) return;
   root.style.display = "flex";
-  const span = document.createElement("span");
-  span.className = "pw";
-  root.appendChild(span);
+  const block = document.createElement("div");
+  block.className = "poem";
 
-  let running = true;
-  let pulseTimers = [];
-  let stepTimer = null;
-
-  function clearPulses() {
-    for (const t of pulseTimers) clearTimeout(t);
-    pulseTimers = [];
-  }
-
-  function fitFontSize(text) {
-    const W = window.innerWidth, H = window.innerHeight;
-    span.style.fontSize = "100px";
-    span.textContent = text;
-    const wFactor = (W * 0.92) / Math.max(1, span.offsetWidth);
-    const hFactor = (H * 0.85) / Math.max(1, span.offsetHeight);
-    return Math.floor(100 * Math.min(wFactor, hFactor));
-  }
-
-  function flashWord(word) {
-    clearPulses();
-    const fs = fitFontSize(word);
-    span.style.fontSize = fs + "px";
-    span.textContent = word;
-
-    const pulseCount = 2 + Math.floor(Math.random() * 3);
-    let t = 0;
-    for (let i = 0; i < pulseCount; i++) {
-      const onMs = 18 + Math.floor(Math.random() * 70);
-      const offMs = 8 + Math.floor(Math.random() * 60);
-      const jx = Math.floor(Math.random() * 7) - 3;
-      const jy = Math.floor(Math.random() * 5) - 2;
-      const inverted = Math.random() < 0.35;
-      const startAt = t;
-      pulseTimers.push(setTimeout(() => {
-        span.style.opacity = "1";
-        span.style.transform = `translate(${jx}px, ${jy}px)`;
-        span.style.filter = inverted ? "invert(1)" : "none";
-      }, startAt));
-      pulseTimers.push(setTimeout(() => {
-        span.style.opacity = "0";
-      }, startAt + onMs));
-      t = startAt + onMs + offMs;
+  for (const line of BG_POEM_LINES) {
+    const lineEl = document.createElement("div");
+    lineEl.className = "pl";
+    const tokens = line.split(/(\s+)/);
+    for (const tok of tokens) {
+      if (/^\s+$/.test(tok)) {
+        lineEl.appendChild(document.createTextNode(tok));
+      } else if (tok.length) {
+        const span = document.createElement("span");
+        span.className = "pw";
+        span.textContent = tok;
+        lineEl.appendChild(span);
+      }
     }
-    pulseTimers.push(setTimeout(() => {
-      span.style.opacity = "0";
-      span.style.transform = "translate(0,0)";
-      span.style.filter = "none";
-    }, t + 20));
+    block.appendChild(lineEl);
   }
+  root.appendChild(block);
 
-  let idx = 0;
-  function step() {
-    if (!running) return;
-    flashWord(BG_POEM[idx]);
-    idx = (idx + 1) % BG_POEM.length;
-    const gap = BG_POEM_INTERVAL_MS - 80 + Math.floor(Math.random() * 220);
-    stepTimer = setTimeout(step, gap);
+  // Binary-search the biggest font-size whose six-line block fits the
+  // viewport in both dimensions, then scaleY the block so any leftover
+  // vertical space is consumed by stretching the glyphs taller. The
+  // horizontal axis stays at natural width so justify still spreads the
+  // words edge-to-edge.
+  function fit() {
+    block.style.transform = "";          // measure undistorted
+    const maxW = root.clientWidth;
+    const maxH = root.clientHeight;
+    let lo = 20, hi = 800, best = 20;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      block.style.fontSize = mid + "px";
+      if (block.scrollWidth <= maxW && block.offsetHeight <= maxH) {
+        best = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    block.style.fontSize = best + "px";
+    const naturalH = block.offsetHeight;
+    const scaleY = naturalH > 0 ? maxH / naturalH : 1;
+    block.style.transform = `scaleY(${scaleY.toFixed(4)})`;
   }
-  step();
+  fit();
+  // Bebas Neue may not be loaded yet on first paint -- re-fit once it is,
+  // otherwise the search measures the fallback (Impact) and the chosen
+  // size won't match the eventual rendered face.
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(fit);
+  }
+  window.addEventListener("resize", fit);
 
   poemBgController = {
     stop() {
-      running = false;
-      if (stepTimer) { clearTimeout(stepTimer); stepTimer = null; }
-      clearPulses();
-      span.remove();
+      window.removeEventListener("resize", fit);
+      block.remove();
       root.style.display = "none";
       poemBgController = null;
     },
@@ -2243,7 +2399,6 @@ async function main() {
     startStats();
     startPianoAmbient();
     startWireLoop();
-    startPoemBackground();
     TRACK_LAYERS.forEach((layer, i) => {
       const t = new Track(layer);
       setTimeout(() => t.start(), i * TRACK_START_STAGGER_MS);
@@ -2282,9 +2437,8 @@ async function main() {
     refreshGlossLabels();
   });
 
-  // Poem background toggle. Starts ON; click to stop, click again to resume.
+  // Poem toggle: starts off; click to show, click again to hide.
   const poemBtn = document.getElementById("poemBtn");
-  poemBtn.classList.add("active");      // visible state matches "running"
   poemBtn.addEventListener("click", () => {
     if (poemBgController) {
       stopPoemBackground();
