@@ -47,37 +47,17 @@
     z-index: 20; pointer-events: none;
     white-space: pre;
   }
-  #legend {
+  /* Tiny trigger that opens the controls window. Lives in the same
+     position the legend used to occupy. */
+  #openControlsBtn {
     position: fixed; top: 16px; left: 16px;
-    font: 10px/1.5 monospace; color: #444;
     z-index: 20; user-select: none;
+    background: transparent; border: 1px solid #aaa;
+    color: #444; padding: 3px 8px; border-radius: 3px;
+    font: 10px/1 monospace; cursor: pointer;
+    transition: background-color 200ms ease, border-color 200ms ease;
   }
-  #legend button.row {
-    all: unset;
-    display: flex; align-items: center; gap: 8px;
-    margin-bottom: 4px; padding: 2px 6px;
-    cursor: pointer; border-radius: 3px;
-    transition: background-color 200ms ease, opacity 200ms ease;
-  }
-  #legend button.row:hover { background-color: rgba(0,0,0,0.04); }
-  #legend button.row.active { background-color: rgba(0,0,0,0.08); }
-  #legend .swatch {
-    display: inline-block; width: 18px; height: 10px;
-    border: 1px solid currentColor;
-  }
-  #legend .swatch.ent  { background: #ff00ff; color: #ff00ff; border-radius: 0; }
-  #legend .swatch.act  { background: #00e5ff; color: #00e5ff; border-radius: 4px; }
-  #legend .swatch.qua  { background: #4cd44c; color: #4cd44c; border-radius: 50%; }
-  #legend .swatch.rel  {
-    background: transparent; color: #8a8a8a;
-    border-style: dashed; border-radius: 0;
-  }
-  #legend .swatch.sem  {
-    background: #ff5e00; color: #ff5e00; border-radius: 0;
-    border-style: dashed;
-  }
-  #legend .label { color: #444; }
-  #legend .upos  { color: #888; font-size: 9px; }
+  #openControlsBtn:hover { background-color: rgba(0,0,0,0.04); border-color: #555; }
   #wires {
     position: fixed;
     left: 0; top: 0;
@@ -217,17 +197,19 @@
   #wires path, #wires rect, #wires ellipse, #wires circle {
     transition: opacity 600ms ease;
   }
-  /* Brief glitch flash on focus change. Applied only to the caption layer
-     and the wire SVG -- the white background + grid stays untouched. */
+  /* Brief glitch flash on focus change. Stripped of `filter:` (which
+     ran a GPU colour-matrix pass over thousands of nodes and stuttered
+     the click response) -- opacity steps alone keep the staccato feel
+     for a fraction of the cost. */
   @keyframes focusFlash {
-    0%   { opacity: 1;    filter: none; }
-    18%  { opacity: 0.25; filter: brightness(0.6) contrast(1.4); }
-    36%  { opacity: 1.1;  filter: brightness(1.6) contrast(0.85); }
-    52%  { opacity: 0.55; filter: brightness(0.78); }
-    100% { opacity: 1;    filter: none; }
+    0%   { opacity: 1;    }
+    18%  { opacity: 0.35; }
+    36%  { opacity: 1;    }
+    52%  { opacity: 0.65; }
+    100% { opacity: 1;    }
   }
   body.focus-flash #stage,
-  body.focus-flash #wires { animation: focusFlash 220ms steps(8, end); }
+  body.focus-flash #wires { animation: focusFlash 200ms steps(6, end); }
   body[data-focus-cat] .caption { opacity: 0.12; }
   body[data-focus-cat] #wires path,
   body[data-focus-cat] #wires rect,
@@ -327,6 +309,13 @@
     font-size: 42px; font-weight: 700; color: #000; opacity: 1;
     max-width: min(820px, 70vw);
   }
+  /* User-typed input from the controls window: bigger than huge so it
+     visibly carries the audience's thread. */
+  .caption.huge.user {
+    font-size: 56px; font-weight: 800;
+    max-width: min(1100px, 86vw);
+    letter-spacing: -0.005em;
+  }
   .caption.main {
     font-size: 17px; font-weight: 600; color: #000; opacity: 0.85;
     max-width: min(340px, 32vw);
@@ -357,6 +346,10 @@
   .caption[dir="rtl"] .ch                  { transform: translateX(-20vw); }
   .caption[dir="rtl"] .ch.on               { transform: translateX(0); }
   .caption[dir="rtl"] .ch.off-left         { transform: translateX(20vw); }
+  /* User-typed input: a single translucent yellow band lives in a
+     ::before pseudo-element on the caption. JS updates --user-bar to
+     match the rightmost arrived glyph, so the band grows continuously
+     with the slide-in animation. */
   .word {
     display: inline-block;
     white-space: nowrap;
@@ -370,21 +363,10 @@
 <div id="stage"></div>
 <svg id="wires" xmlns="http://www.w3.org/2000/svg"></svg>
 <video id="cam" autoplay muted playsinline style="display:none"></video>
-<div id="legend">
-  <button class="row" data-cat="ENTITY"><span class="swatch ent"></span><span class="label">ENTITY</span><span class="upos">noun · pron</span></button>
-  <button class="row" data-cat="ACTION"><span class="swatch act"></span><span class="label">ACTION</span><span class="upos">verb · aux</span></button>
-  <button class="row" data-cat="QUALITY"><span class="swatch qua"></span><span class="label">QUALITY</span><span class="upos">adj · adv</span></button>
-  <button class="row" data-cat="RELATION"><span class="swatch rel"></span><span class="label">RELATION</span><span class="upos">adp · conj · det · part</span></button>
-  <button class="row" data-cat="SEMANTIC"><span class="swatch sem"></span><span class="label">SEMANTIC</span><span class="upos">cross-lang meaning</span></button>
-  <button class="row" id="freezeBtn" style="margin-top: 6px;">
-    <span class="swatch" style="background: transparent; color: #444; border-color: #444;"></span>
-    <span class="label">FREEZE</span><span class="upos">snapshot · all-pairs</span>
-  </button>
-  <button class="row" id="poemBtn">
-    <span class="swatch" style="background: #000; color: #000; border-color: #000;"></span>
-    <span class="label">POEM</span><span class="upos">background flicker</span>
-  </button>
-</div>
+<!-- The interactive controls live in a separate window (web/control.html).
+     Click this small trigger to open it; the two windows talk over a
+     BroadcastChannel so the canvas stays uncluttered for the audience. -->
+<button id="openControlsBtn">controls</button>
 <div id="stats"></div>
 <div id="start"><button id="startBtn">시작</button></div>
 <script>
@@ -413,12 +395,15 @@ const TRACK_LAYERS = [
   // Silent visual-only main-size tracks.
   { name: "sm_any",  tier: "any", silent: true, volume: 0, captionClass: "caption main" },
   { name: "sm_any2", tier: "any", silent: true, volume: 0, captionClass: "caption main" },
+  { name: "sm_any3", tier: "any", silent: true, volume: 0, captionClass: "caption main" },
   // Silent visual-only sub-size tracks.
   { name: "ss_en", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "en" },
   { name: "ss_ar", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "ar" },
   { name: "ss_no", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "no" },
   { name: "ss_ja", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "ja" },
-  { name: "ss_any", tier: "any", silent: true, volume: 0, captionClass: "caption sub" },
+  { name: "ss_any",  tier: "any", silent: true, volume: 0, captionClass: "caption sub" },
+  { name: "ss_any2", tier: "any", silent: true, volume: 0, captionClass: "caption sub" },
+  { name: "ss_any3", tier: "any", silent: true, volume: 0, captionClass: "caption sub" },
   // Silent micro tracks.
   { name: "s_en", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "en" },
   { name: "s_zh", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "zh" },
@@ -429,6 +414,8 @@ const TRACK_LAYERS = [
   { name: "s_zh2", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "zh" },
   { name: "s_ko2", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "ko" },
   { name: "s_en2", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "en" },
+  { name: "s_any",  tier: "any", silent: true, volume: 0, captionClass: "caption micro" },
+  { name: "s_any2", tier: "any", silent: true, volume: 0, captionClass: "caption micro" },
 ];
 
 // Per-language playback boost. KsponSpeech is recorded a touch quieter than
@@ -459,6 +446,7 @@ const activeClipFiles = new Set();  // currently-playing clip files across all t
 // Global pause: when true, no new clips are scheduled, audio is paused, and
 // every animation (caption slide, wire enter/exit, dashoffset) holds in place.
 let frozen = false;
+let muted = false;
 const liveAudios = new Set();   // every active <audio> element (for pause/resume)
 
 function buildTierPools() {
@@ -1029,6 +1017,7 @@ class Track {
     activeClipFiles.add(clip.file);
     const audio = new Audio(clip.file);
     audio.volume = clampVol((this.layer.volume || 0) * (LANG_BOOST[clip.lang] || 1));
+    audio.muted = muted;
     audio.preload = "auto";
     liveAudios.add(audio);
 
@@ -2437,7 +2426,7 @@ async function renderStaticPoster({ captions, semantic }) {
   window.__staticMode = true;
   document.getElementById("start").style.display = "none";
   document.getElementById("stats")?.remove();
-  document.getElementById("legend")?.remove();
+  document.getElementById("openControlsBtn")?.remove();
   // Keep #poem-bg in the DOM so the headless capture can flip it on for
   // an extra "poem layer" pass after grabbing captions/wires.
   // Drop the body's white background so omitBackground in the headless
@@ -2764,45 +2753,175 @@ async function main() {
 
   // Legend buttons toggle category isolation. The freeze button is handled
   // separately below.
-  document.querySelectorAll("#legend button.row[data-cat]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const cat = btn.dataset.cat;
-      const cur = document.body.dataset.focusCat;
-      document.querySelectorAll("#legend button.row[data-cat]").forEach(b => b.classList.remove("active"));
-      if (cur === cat) {
-        delete document.body.dataset.focusCat;
-      } else {
-        document.body.dataset.focusCat = cat;
-        btn.classList.add("active");
-      }
-      document.body.classList.remove("focus-flash");
-      void document.body.offsetWidth;
-      document.body.classList.add("focus-flash");
-      refreshGlossLabels();
-    });
-  });
+  // === Cross-window control bus ===
+  // The interactive UI now lives in a separate window (web/control.html).
+  // We talk to it via BroadcastChannel: it sends action messages, we
+  // broadcast state back so it can reflect the current focus / freeze /
+  // poem flags. Every action below keeps the same behaviour the in-page
+  // buttons used to trigger.
+  const controlBus = new BroadcastChannel("ttn-controls");
 
-  // Freeze toggle: hard pause/resume. Audio stops, every animation holds
-  // in place. Piano ambient keeps playing.
-  const freezeBtn = document.getElementById("freezeBtn");
-  freezeBtn.addEventListener("click", () => {
+  function broadcastState() {
+    controlBus.postMessage({
+      type: "state",
+      focusCat: document.body.dataset.focusCat || null,
+      frozen,
+      muted,
+      poemOn: !!poemBgController,
+    });
+  }
+
+  function setFocusCat(cat) {
+    const cur = document.body.dataset.focusCat;
+    if (cur === cat || cat === null) {
+      delete document.body.dataset.focusCat;
+    } else {
+      document.body.dataset.focusCat = cat;
+    }
+    // Re-trigger the focusFlash animation by reaching into the WAAPI:
+    // cancel anything already running on body's #stage / #wires and let
+    // CSS re-attach a fresh animation when the class flips back on.
+    // This avoids the `void offsetWidth` reflow trick, which on a
+    // multi-thousand-node DOM forced a synchronous layout pass and
+    // visibly stuttered the click.
+    for (const el of [document.getElementById("stage"), document.getElementById("wires")]) {
+      if (!el) continue;
+      for (const a of el.getAnimations({ subtree: false })) a.cancel();
+    }
+    document.body.classList.remove("focus-flash");
+    document.body.classList.add("focus-flash");
+    // Defer the gloss-label rebuild past the next frame so the focus
+    // animation gets a clean paint before we walk every visible word.
+    requestAnimationFrame(() => requestAnimationFrame(refreshGlossLabels));
+    broadcastState();
+  }
+
+  function toggleFreeze() {
     frozen = !frozen;
-    freezeBtn.classList.toggle("active", frozen);
     for (const a of liveAudios) {
       try { frozen ? a.pause() : a.play(); } catch (e) {}
     }
     refreshGlossLabels();
+    broadcastState();
+  }
+
+  function togglePoem() {
+    if (poemBgController) stopPoemBackground();
+    else startPoemBackground();
+    broadcastState();
+  }
+
+  function toggleMute() {
+    muted = !muted;
+    // Mute every active clip-driven <audio>.
+    for (const a of liveAudios) {
+      try { a.muted = muted; } catch (e) {}
+    }
+    // Mute the WebAudio piano ambient too.
+    if (typeof pianoGain !== "undefined" && pianoGain) {
+      try { pianoGain.gain.value = muted ? 0 : 0.7; } catch (e) {}
+    }
+    broadcastState();
+  }
+
+  controlBus.addEventListener("message", (ev) => {
+    const m = ev.data;
+    if (!m || !m.type) return;
+    if (m.type === "set-focus-cat") setFocusCat(m.cat);
+    else if (m.type === "toggle-freeze") toggleFreeze();
+    else if (m.type === "toggle-poem")   togglePoem();
+    else if (m.type === "toggle-mute")   toggleMute();
+    else if (m.type === "request-state") broadcastState();
+    else if (m.type === "user-text") handleUserText(m.text);
   });
 
-  // Poem toggle: starts off; click to show, click again to hide.
-  const poemBtn = document.getElementById("poemBtn");
-  poemBtn.addEventListener("click", () => {
-    if (poemBgController) {
-      stopPoemBackground();
-      poemBtn.classList.remove("active");
-    } else {
-      startPoemBackground();
-      poemBtn.classList.add("active");
+  async function handleUserText(rawText) {
+    const text = (rawText || "").slice(0, 60).trim();
+    if (!text) {
+      controlBus.postMessage({ type: "user-text-result", ok: false, error: "empty" });
+      return;
+    }
+    let result;
+    try {
+      const res = await fetch("http://127.0.0.1:8765/tag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) throw new Error("server " + res.status);
+      result = await res.json();
+    } catch (e) {
+      controlBus.postMessage({ type: "user-text-result", ok: false, error: String(e.message || e) });
+      return;
+    }
+    showUserCaption(text, result);
+    controlBus.postMessage({
+      type: "user-text-result",
+      ok: true,
+      tokens: result.tokens?.length || 0,
+    });
+  }
+
+  // Build a caption out of the user's text + POS tags and run it through
+  // the same lifecycle as a clip-driven caption: place it on the grid,
+  // slide every glyph in, hold for a bit, slide out. The "user" tier is
+  // larger than huge so the audience reads it as the user's thread.
+  function showUserCaption(text, tagged) {
+    const stage = document.getElementById("stage");
+    if (!stage) return;
+    const lang = tagged.lang || "en";
+    const cap = document.createElement("div");
+    cap.className = "caption huge user";
+    cap.setAttribute("lang", lang);
+    if (Math.random() < 0.5) cap.setAttribute("data-fontstyle", "serif");
+
+    // Greedy match each token's surface in the original text so we keep
+    // the user's spacing/punctuation. Anything between tokens is gap text.
+    let cursor = 0;
+    const tokens = tagged.tokens || [];
+    for (const t of tokens) {
+      const surf = t.surf || "";
+      if (!surf) continue;
+      const found = text.indexOf(surf, cursor);
+      const gapStart = found < 0 ? cursor : found;
+      if (gapStart > cursor) {
+        const gap = document.createElement("span");
+        gap.className = "gap";
+        gap.textContent = text.slice(cursor, gapStart);
+        cap.appendChild(gap);
+      }
+      const word = document.createElement("span");
+      word.className = "word";
+      if (t.cat && t.cat !== "OTHER") word.dataset.cat = t.cat;
+      for (const ch of Array.from(surf)) {
+        const span = document.createElement("span");
+        span.className = "ch";
+        span.textContent = ch;
+        word.appendChild(span);
+      }
+      cap.appendChild(word);
+      cursor = (found < 0 ? cursor : found) + surf.length;
+    }
+    if (cursor < text.length) {
+      const gap = document.createElement("span");
+      gap.className = "gap";
+      gap.textContent = text.slice(cursor);
+      cap.appendChild(gap);
+    }
+
+    placeCaption(cap);
+    const speechMs = Math.max(1200, text.length * 60);
+    slideInChars(cap, speechMs);
+    setTimeout(() => slideOutChars(cap, 800), speechMs + 4000);
+  }
+
+  // Trigger that opens the dedicated controls window.
+  document.getElementById("openControlsBtn").addEventListener("click", () => {
+    const w = window.open("control.html", "ttn-controls",
+      "width=280,height=500,resizable=no,scrollbars=no");
+    if (w) {
+      // Push current state shortly after the window registers its listener.
+      setTimeout(broadcastState, 200);
     }
   });
 }

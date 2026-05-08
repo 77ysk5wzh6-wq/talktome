@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>controls</title>
+<style>
+  html, body {
+    margin: 0; padding: 12px;
+    background: #fafafa; color: #444;
+    font: 11px/1.5 monospace;
+    user-select: none;
+  }
+  h1 {
+    font: 600 10px/1 monospace;
+    margin: 0 0 10px;
+    color: #888;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  button.row {
+    all: unset;
+    display: flex; align-items: center; gap: 8px;
+    width: 100%;
+    margin-bottom: 4px; padding: 4px 6px;
+    cursor: pointer; border-radius: 3px;
+    transition: background-color 200ms ease, opacity 200ms ease;
+    box-sizing: border-box;
+  }
+  button.row:hover { background-color: rgba(0,0,0,0.05); }
+  button.row.active { background-color: rgba(0,0,0,0.1); }
+  .swatch {
+    display: inline-block; width: 18px; height: 10px;
+    border: 1px solid currentColor;
+    flex-shrink: 0;
+  }
+  .swatch.ent  { background: #ff00ff; color: #ff00ff; border-radius: 0; }
+  .swatch.act  { background: #00e5ff; color: #00e5ff; border-radius: 4px; }
+  .swatch.qua  { background: #4cd44c; color: #4cd44c; border-radius: 50%; }
+  .swatch.rel  {
+    background: transparent; color: #8a8a8a;
+    border-style: dashed; border-radius: 0;
+  }
+  .swatch.sem  {
+    background: #ff5e00; color: #ff5e00; border-radius: 0;
+    border-style: dashed;
+  }
+  .swatch.freeze { background: transparent; color: #444; border-color: #444; }
+  .swatch.poem   { background: #000; color: #000; border-color: #000; }
+  .swatch.mute   { background: #888; color: #888; border-color: #888; }
+  .label { color: #444; font-weight: 600; }
+  .upos  { color: #888; font-size: 9px; margin-left: auto; }
+  hr { border: none; border-top: 1px solid #ddd; margin: 8px 0; }
+</style>
+</head>
+<body>
+<h1>controls</h1>
+<button class="row" data-cat="ENTITY">
+  <span class="swatch ent"></span>
+  <span class="label">ENTITY</span>
+  <span class="upos">noun · pron</span>
+</button>
+<button class="row" data-cat="ACTION">
+  <span class="swatch act"></span>
+  <span class="label">ACTION</span>
+  <span class="upos">verb · aux</span>
+</button>
+<button class="row" data-cat="QUALITY">
+  <span class="swatch qua"></span>
+  <span class="label">QUALITY</span>
+  <span class="upos">adj · adv</span>
+</button>
+<button class="row" data-cat="RELATION">
+  <span class="swatch rel"></span>
+  <span class="label">RELATION</span>
+  <span class="upos">adp · conj · det · part</span>
+</button>
+<button class="row" data-cat="SEMANTIC">
+  <span class="swatch sem"></span>
+  <span class="label">SEMANTIC</span>
+  <span class="upos">cross-lang</span>
+</button>
+<hr>
+<button class="row" id="freezeBtn">
+  <span class="swatch freeze"></span>
+  <span class="label">FREEZE</span>
+  <span class="upos">snapshot</span>
+</button>
+<button class="row" id="poemBtn">
+  <span class="swatch poem"></span>
+  <span class="label">POEM</span>
+  <span class="upos">background</span>
+</button>
+<button class="row" id="muteBtn">
+  <span class="swatch mute"></span>
+  <span class="label">MUTE</span>
+  <span class="upos">all audio</span>
+</button>
+<hr>
+<form id="userForm" autocomplete="off">
+  <input type="text" id="userText" maxlength="60"
+         placeholder="say something… (en/ko)">
+  <button type="submit" id="sendBtn">send</button>
+  <div id="userStatus"></div>
+</form>
+
+<style>
+  #userForm {
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  #userText {
+    border: 1px solid #aaa; background: #fff; color: #111;
+    font: 11px/1.4 monospace; padding: 6px 8px; border-radius: 3px;
+    outline: none;
+  }
+  #userText:focus { border-color: #555; }
+  #sendBtn {
+    all: unset; text-align: center; cursor: pointer;
+    padding: 4px 6px; border: 1px solid #aaa; border-radius: 3px;
+    color: #333; font: 600 10px/1 monospace; letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  #sendBtn:hover { border-color: #555; background: rgba(0,0,0,0.04); }
+  #sendBtn:disabled { opacity: 0.5; cursor: wait; }
+  #userStatus { color: #888; font-size: 9px; min-height: 12px; }
+</style>
+
+<script>
+const bus = new BroadcastChannel("ttn-controls");
+
+const catBtns = document.querySelectorAll("button.row[data-cat]");
+const freezeBtn = document.getElementById("freezeBtn");
+const poemBtn   = document.getElementById("poemBtn");
+const muteBtn   = document.getElementById("muteBtn");
+
+catBtns.forEach(btn => {
+  btn.addEventListener("click", () => {
+    bus.postMessage({ type: "set-focus-cat", cat: btn.dataset.cat });
+  });
+});
+freezeBtn.addEventListener("click", () => bus.postMessage({ type: "toggle-freeze" }));
+poemBtn  .addEventListener("click", () => bus.postMessage({ type: "toggle-poem" }));
+muteBtn  .addEventListener("click", () => bus.postMessage({ type: "toggle-mute" }));
+
+bus.addEventListener("message", (ev) => {
+  const m = ev.data;
+  if (!m || m.type !== "state") return;
+  catBtns.forEach(b => b.classList.toggle("active", b.dataset.cat === m.focusCat));
+  freezeBtn.classList.toggle("active", !!m.frozen);
+  poemBtn.classList.toggle("active", !!m.poemOn);
+  muteBtn.classList.toggle("active", !!m.muted);
+});
+
+// User-input form: sends the text over the bus, then waits for the
+// main window to acknowledge once it has finished tagging + showing.
+const userForm   = document.getElementById("userForm");
+const userText   = document.getElementById("userText");
+const sendBtn    = document.getElementById("sendBtn");
+const userStatus = document.getElementById("userStatus");
+
+userForm.addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const text = userText.value.trim();
+  if (!text) return;
+  sendBtn.disabled = true;
+  userStatus.textContent = "tagging…";
+  bus.postMessage({ type: "user-text", text });
+});
+
+bus.addEventListener("message", (ev) => {
+  const m = ev.data;
+  if (!m) return;
+  if (m.type === "user-text-result") {
+    sendBtn.disabled = false;
+    if (m.ok) {
+      userStatus.textContent = `shown (${m.tokens} tokens)`;
+      userText.value = "";
+    } else {
+      userStatus.textContent = "error: " + (m.error || "unknown");
+    }
+  }
+});
+
+// On load, ask the main window for current state.
+bus.postMessage({ type: "request-state" });
+</script>
+</body>
+</html>
