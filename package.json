@@ -1,0 +1,25 @@
+{
+  "name": "talk_to_number",
+  "version": "1.0.0",
+  "description": "Multilingual speech overlay where 한국어, 中文, 日本語, English captions stream in parallel and are wired together by Universal POS category — a visual statement that all four languages reduce to the same machine grammar.",
+  "main": "render_static.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/77ysk5wzh6-wq/lang_num.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/77ysk5wzh6-wq/lang_num/issues"
+  },
+  "homepage": "https://github.com/77ysk5wzh6-wq/lang_num#readme",
+  "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "playwright": "^1.59.1",
+    "sharp": "^0.34.5"
+  }
+}

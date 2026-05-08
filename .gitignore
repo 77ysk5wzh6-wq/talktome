@@ -24,3 +24,11 @@ web/*.png
 
 # Hugging Face cache (if any leaked into repo)
 .hf_cache/
+
+# Static poster renderer outputs (regenerable via render_static.js).
+# Final composites + every intermediate layer + dump SVG.
+out/
+
+# Node modules pulled in for the renderer.
+node_modules/
+package-lock.json

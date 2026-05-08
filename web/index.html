@@ -1254,9 +1254,9 @@ function startWireLoop() {
   // semantic gradient and the matching solid box fill. Defined up here so
   // the box-drawing pass can call it before the gradient pass.
   function semStopOpacity(fillOp) {
-    if (fillOp >= 0.30) return 0.85;   // main word
-    if (fillOp >= 0.10) return 0.50;   // sub word
-    return 0.22;                        // micro / silent word
+    if (fillOp >= 0.30) return 0.65;   // main word
+    if (fillOp >= 0.10) return 0.35;   // sub word
+    return 0.14;                        // micro / silent word
   }
 
   // Pick the nearest pair of edges between two rectangles (with a small pad)
@@ -1907,16 +1907,30 @@ function startWireLoop() {
       b.usedPorts.add(sideB);
     }
 
-    // Normal mode: chain + sparse cross-links.
-    for (const cat of DRAWN_CATS) {
-      const pts = buckets[cat];
-      if (pts.length < 2) continue;
-      pts.sort((a, b) => (a.capId - b.capId) || (a.wordIdx - b.wordIdx));
-      for (let i = 0; i < pts.length - 1; i++) emitWire(cat, pts[i], pts[i+1]);
-      for (let i = 0; i < pts.length - 2; i++) {
-        const a = pts[i], b = pts[i+2];
-        const k = `cross|${a.capId}-${a.wordIdx}|${b.capId}-${b.wordIdx}`;
-        if ((hashStr(k) % 3) === 0) emitWire(cat, a, b);
+    // Wiring strategy. Live scene wants dense, animated traces; the
+    // poster wants something readable -- so the static mode draws a
+    // sparser chain (every 2nd link) and skips cross-links entirely.
+    if (window.__staticMode) {
+      for (const cat of DRAWN_CATS) {
+        const pts = buckets[cat];
+        if (pts.length < 2) continue;
+        pts.sort((a, b) => (a.capId - b.capId) || (a.wordIdx - b.wordIdx));
+        for (let i = 0; i < pts.length - 1; i++) {
+          const k = `chain|${pts[i].capId}-${pts[i].wordIdx}|${pts[i+1].capId}-${pts[i+1].wordIdx}`;
+          if ((hashStr(k) % 2) === 0) emitWire(cat, pts[i], pts[i+1]);
+        }
+      }
+    } else {
+      for (const cat of DRAWN_CATS) {
+        const pts = buckets[cat];
+        if (pts.length < 2) continue;
+        pts.sort((a, b) => (a.capId - b.capId) || (a.wordIdx - b.wordIdx));
+        for (let i = 0; i < pts.length - 1; i++) emitWire(cat, pts[i], pts[i+1]);
+        for (let i = 0; i < pts.length - 2; i++) {
+          const a = pts[i], b = pts[i+2];
+          const k = `cross|${a.capId}-${a.wordIdx}|${b.capId}-${b.wordIdx}`;
+          if ((hashStr(k) % 3) === 0) emitWire(cat, a, b);
+        }
       }
     }
 
@@ -2268,6 +2282,23 @@ function startWireLoop() {
     requestAnimationFrame(safeTick);
   }
   requestAnimationFrame(safeTick);
+
+  // Expose synchronous helpers for the static poster renderer: it can't
+  // rely on RAF (headless Chromium throttles it under load) so it advances
+  // the wire/semantic state by calling tick() directly with a faked clock.
+  window.__forceWireTick = (fakeNow) => {
+    try { tick(fakeNow); } catch (e) { console.error(e); }
+  };
+  window.__settleWires = (steps = 60) => {
+    // Run plenty of ticks with a fake clock advancing fast enough to clear
+    // every enter/stagger window (max stagger ~2400ms + WIRE_ENTER_MS).
+    const stride = 80;
+    let t = performance.now();
+    for (let i = 0; i < steps; i++) {
+      window.__forceWireTick(t);
+      t += stride;
+    }
+  };
 }
 
 // Background poem: simple on/off toggle. The full quatrain sits in six
@@ -2388,11 +2419,328 @@ function startStats() {
 }
 
 
+// ===== Static poster renderer =====
+// Lays down a single frozen frame: N captions placed across the viewport,
+// every glyph already settled, wires/boxes drawn once, the sim band kept
+// to a target count. No audio, no animations, no poem layer. The page
+// signals readiness via window.__STATIC_READY for a headless capture.
+async function renderStaticPoster({ captions, semantic }) {
+  window.__staticMode = true;
+  document.getElementById("start").style.display = "none";
+  document.getElementById("stats")?.remove();
+  document.getElementById("legend")?.remove();
+  // Keep #poem-bg in the DOM so the headless capture can flip it on for
+  // an extra "poem layer" pass after grabbing captions/wires.
+  // Drop the body's white background so omitBackground in the headless
+  // screenshot actually produces a transparent capture -- the static
+  // pipeline composites a white floor itself, layered behind the
+  // semantic bg PNG.
+  document.documentElement.style.background = "transparent";
+  document.body.style.background = "transparent";
+  document.body.style.backgroundColor = "transparent";
+
+  // Disable the slide-in transition so .ch.on glyphs sit at their final
+  // positions immediately. Without this, the static capture catches them
+  // mid-flight (translateX 20vw -> 0 over --slide-ms) and they read as
+  // empty captions.
+  const staticStyle = document.createElement("style");
+  staticStyle.textContent = `
+    .caption .ch, .caption .ch.on, .caption .ch.off-left {
+      transition: none !important;
+      transform: none !important;
+      opacity: 1 !important;
+    }
+    .caption { transition: none !important; }
+  `;
+  document.head.appendChild(staticStyle);
+
+  // Reproduce the live track-mix proportions so caption sizes/languages
+  // match what the screen normally shows. Each entry's weight is the same
+  // as how often that track plays in the live scene.
+  const STATIC_TRACK_WEIGHTS = TRACK_LAYERS.map(layer => 1);
+  const totalW = STATIC_TRACK_WEIGHTS.reduce((s, x) => s + x, 0);
+
+  function pickLayer() {
+    let r = Math.random() * totalW;
+    for (let i = 0; i < TRACK_LAYERS.length; i++) {
+      r -= STATIC_TRACK_WEIGHTS[i];
+      if (r <= 0) return TRACK_LAYERS[i];
+    }
+    return TRACK_LAYERS[TRACK_LAYERS.length - 1];
+  }
+
+  // 1. Build all captions and place them with a FAST cached-rect placer
+  //    (the live placeCaption() reads getBoundingClientRect() on every
+  //    existing caption, which forces a full layout per insert -- O(N^2)
+  //    layouts at N=2000 is multi-minute pain).
+  const stage = document.getElementById("stage");
+  const W = window.innerWidth, H = window.innerHeight;
+  const SM = 16;            // matches SAFE_MARGIN_PX
+  const CW = 64, CH = 32;   // matches GRID_CELL_W / GRID_CELL_H
+  const placedRects = [];   // {left, top, right, bottom}
+  function rectsHit(x, y, w, h, pad) {
+    for (const r of placedRects) {
+      if (x < r.right + pad && x + w > r.left - pad &&
+          y < r.bottom + pad && y + h > r.top - pad) return true;
+    }
+    return false;
+  }
+  let captionSeqLocal = 0;
+  const built = [];
+  for (let i = 0; i < captions; i++) {
+    const layer = pickLayer();
+    let clip;
+    try { clip = pickRandomUnique(layer.tier, layer.lang); }
+    catch (e) { continue; }
+    const cap = makeCaptionEl(clip, layer.captionClass);
+    cap.style.left = "-9999px"; cap.style.top = "-9999px";
+    stage.appendChild(cap);
+    cap.dataset.cap = String(captionSeq++);
+    const w = cap.offsetWidth;
+    const h = cap.offsetHeight;
+    if (!w || !h) continue;
+    const maxX = Math.max(SM, W - w - SM);
+    const maxY = Math.max(SM, H - h - SM);
+    const cellsX = Math.max(1, Math.floor((maxX - SM) / CW) + 1);
+    const cellsY = Math.max(1, Math.floor((maxY - SM) / CH) + 1);
+    let x = -1, y = -1;
+    const isHuge = cap.classList.contains("huge");
+    const TRIES = 40;
+    for (let t = 0; t < TRIES; t++) {
+      const tx = SM + Math.floor(Math.random() * cellsX) * CW;
+      const ty = SM + Math.floor(Math.random() * cellsY) * CH;
+      if (tx > maxX || ty > maxY) continue;
+      if (rectsHit(tx, ty, w, h, isHuge ? 80 : 4)) continue;
+      x = tx; y = ty; break;
+    }
+    if (x < 0) {
+      // Try without the huge-gap constraint.
+      for (let t = 0; t < TRIES; t++) {
+        const tx = SM + Math.floor(Math.random() * cellsX) * CW;
+        const ty = SM + Math.floor(Math.random() * cellsY) * CH;
+        if (tx > maxX || ty > maxY) continue;
+        if (rectsHit(tx, ty, w, h, 4)) continue;
+        x = tx; y = ty; break;
+      }
+    }
+    if (x < 0) {
+      // Total fallback: skip rather than overlap.
+      cap.remove();
+      continue;
+    }
+    cap.style.left = `${x}px`;
+    cap.style.top  = `${y}px`;
+    placedRects.push({ left: x, top: y, right: x + w, bottom: y + h });
+    for (const ch of cap.querySelectorAll(".ch")) ch.classList.add("on");
+    built.push(cap);
+  }
+  console.log(`[static] placed ${built.length}/${captions} captions`);
+
+  // 2. Wait one frame so the browser settles glyph metrics, then run the
+  //    wire loop's tick once to lay down boxes/wires/semantic bands.
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  if (document.fonts && document.fonts.ready) {
+    try { await document.fonts.ready; } catch (e) {}
+  }
+
+  startWireLoop();
+  // Headless Chromium throttles RAF under heavy DOM (~2000 captions),
+  // so we drive the wire tick synchronously with a faked clock instead.
+  trimSemanticBands(semantic);
+  if (typeof window.__settleWires === "function") {
+    window.__settleWires(80);   // ~6.4s of simulated time
+  }
+  // One more frame so the browser flushes paints before capture.
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+  // Bake every visual property the wire stylesheet relies on directly
+  // onto each SVG node as attributes. resvg only sees what's inside the
+  // SVG document -- it doesn't read <style> rules that target nodes by
+  // class, so stroke / fill / stroke-width / dash patterns all have to
+  // live on the elements themselves before we serialise.
+  const PALETTE = {
+    entity:   "#ff00ff",
+    action:   "#00e5ff",
+    quality:  "#4cd44c",
+    relation: "#8a8a8a",
+  };
+  // Foreground wires: paths.
+  for (const [cls, hex] of Object.entries(PALETTE)) {
+    document.querySelectorAll(`#wires path.${cls}`).forEach(p => {
+      // Each wire path has its stroke set inline as `url("#wgradN")` so
+      // it picks up the per-pair gradient. Browsers serialise that style
+      // with HTML-escaped quotes (&quot;), which resvg can't parse, so we
+      // rewrite stroke as a bare `url(#wgradN)` attribute and clear the
+      // inline style. If no gradient was assigned (shouldn't happen), we
+      // fall back to the category palette colour.
+      const m = (p.style.stroke || "").match(/url\(\s*['"]?#([^'"\s)]+)['"]?\s*\)/);
+      if (m) {
+        p.setAttribute("stroke", `url(#${m[1]})`);
+      } else {
+        p.setAttribute("stroke", hex);
+      }
+      p.style.stroke = "";   // drop the escaped inline so it can't override
+      p.setAttribute("fill", "none");
+      p.setAttribute("stroke-width", "0.6");
+      p.setAttribute("stroke-opacity", "0.85");
+      // Clear the JS-driven dash trick used for enter/exit animation;
+      // poster output should show every wire fully.
+      p.style.strokeDasharray = "";
+      p.style.strokeDashoffset = "";
+      if (cls === "relation") p.setAttribute("stroke-dasharray", "4 4");
+      if (cls === "action")   { p.setAttribute("stroke-linejoin", "round"); p.setAttribute("stroke-linecap", "round"); }
+      if (cls === "quality")  p.setAttribute("stroke-linecap", "round");
+    });
+    // Boxes (rect / ellipse).
+    document.querySelectorAll(`#wires rect.${cls}-box`).forEach(b => {
+      b.setAttribute("stroke", hex);
+      b.setAttribute("fill", hex);
+      b.setAttribute("stroke-width", "0.6");
+      b.setAttribute("stroke-opacity", "0.85");
+      if (cls === "relation") b.setAttribute("stroke-dasharray", "4 3");
+    });
+    document.querySelectorAll(`#wires ellipse.${cls}-box`).forEach(b => {
+      b.setAttribute("stroke", hex);
+      b.setAttribute("fill", hex);
+      b.setAttribute("stroke-width", "0.6");
+      b.setAttribute("stroke-opacity", "0.85");
+    });
+    // Ports (circles).
+    document.querySelectorAll(`#wires circle.${cls}-port`).forEach(c => {
+      c.setAttribute("stroke", hex);
+      c.setAttribute("fill", hex);
+      c.setAttribute("stroke-width", "0.4");
+      c.setAttribute("stroke-opacity", "0.85");
+    });
+  }
+  // Semantic bg layer: filled bands + boxes. Each band's fill is also a
+  // gradient url(#semGradN); apply the same un-escaping fix as above.
+  function unescapeUrlFill(node, fallback) {
+    const m = (node.style.fill || "").match(/url\(\s*['"]?#([^'"\s)]+)['"]?\s*\)/);
+    if (m) node.setAttribute("fill", `url(#${m[1]})`);
+    else node.setAttribute("fill", fallback);
+    node.style.fill = "";
+  }
+  document.querySelectorAll("#wires-bg path.semantic").forEach(p => {
+    unescapeUrlFill(p, "#ff5e00");
+    p.setAttribute("stroke", "none");
+  });
+  document.querySelectorAll("#wires-bg rect.semantic-box").forEach(b => {
+    unescapeUrlFill(b, "#ff5e00");
+    b.setAttribute("stroke", "none");
+  });
+
+  const wiresFg = document.getElementById("wires");
+  const wiresBg = document.getElementById("wires-bg");
+  wiresFg.setAttribute("width", window.innerWidth);
+  wiresFg.setAttribute("height", window.innerHeight);
+  wiresBg.setAttribute("width", window.innerWidth);
+  wiresBg.setAttribute("height", window.innerHeight);
+  // Add an XML namespace on serialise so resvg accepts the markup.
+  wiresFg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  wiresBg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  window.__svgWiresFg = wiresFg.outerHTML;
+  window.__svgWiresBg = wiresBg.outerHTML;
+
+  // Headless helper: hide everything but the poem layer, then turn it on.
+  // Used by the renderer to grab the poem as its own PNG for difference
+  // blending in the final composite.
+  window.__showPoemOnly = async () => {
+    document.getElementById("stage").style.display = "none";
+    document.getElementById("wires").style.display = "none";
+    document.getElementById("wires-bg").style.display = "none";
+    // Disable the live mix-blend-mode for the standalone capture; sharp
+    // will apply `difference` itself when compositing this PNG over the
+    // base image. The poem keeps its WHITE colour so the difference math
+    // works out the same as on the live page:
+    //   white floor (255) - white glyph (255) = 0  -> reads as black
+    //   coloured wire (255,0,255) - white glyph    = (0,255,0) etc.
+    const poemRoot = document.getElementById("poem-bg");
+    poemRoot.style.mixBlendMode = "normal";
+    if (typeof startPoemBackground === "function") startPoemBackground();
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  };
+
+  window.__STATIC_READY = true;
+}
+
+// Cull semantic bands until at most `target` remain alive. We just delete
+// `_similar` from words on excess pairs so the next tick stops including
+// them in semAlive, and they fade out.
+function trimSemanticBands(target) {
+  const stage = document.getElementById("stage");
+  const words = stage.querySelectorAll(".word");
+  // Build pairs that are currently mutual + visible.
+  const seen = new Set();
+  const pairs = [];
+  const wordByKey = new Map();
+  for (const w of words) {
+    if (!w._clipFile || w._tokenIdx == null) continue;
+    wordByKey.set(`${w._clipFile}|${w._tokenIdx}`, w);
+  }
+  for (const [k, w] of wordByKey) {
+    if (!w._similar) continue;
+    for (const s of w._similar) {
+      const sk = `${s.file}|${s.ti}`;
+      if (!wordByKey.has(sk)) continue;
+      const pk = k < sk ? `${k}::${sk}` : `${sk}::${k}`;
+      if (seen.has(pk)) continue;
+      seen.add(pk);
+      pairs.push([w, wordByKey.get(sk), s]);
+    }
+  }
+  // Shuffle, keep the first `target`, strip _similar from the rest.
+  for (let i = pairs.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pairs[i], pairs[j]] = [pairs[j], pairs[i]];
+  }
+  const keep = new Set();
+  for (let i = 0; i < Math.min(target, pairs.length); i++) {
+    keep.add(pairs[i]);
+  }
+  // For words involved only in dropped pairs, clear _similar entirely.
+  for (let i = target; i < pairs.length; i++) {
+    const [a, b] = pairs[i];
+    a._similar = (a._similar || []).filter(s => {
+      for (const kept of keep) {
+        if ((kept[0] === a && kept[2] === s) ||
+            (kept[1] === a && wordByKey.get(`${s.file}|${s.ti}`) === kept[0])) return true;
+      }
+      return false;
+    });
+    b._similar = (b._similar || []).filter(s => {
+      for (const kept of keep) {
+        if ((kept[0] === b && kept[2] === s) ||
+            (kept[1] === b && wordByKey.get(`${s.file}|${s.ti}`) === kept[0])) return true;
+      }
+      return false;
+    });
+  }
+}
+
+function freezeAllWires() {
+  // Hard-stop all RAF-driven scheduling.
+  window.frozen = true;
+}
+
 async function main() {
   const res = await fetch("clips.json");
   clips = await res.json();
   buildTierPools();
   console.log("loaded", clips.length, "clips");
+
+  // Static-render mode for poster export. Activated by URL params:
+  //   ?static=1&captions=120&semantic=30
+  // Renders one frozen frame (no animations, no audio), then sets
+  // window.__STATIC_READY = true so a headless capture can grab it.
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("static") === "1") {
+    await renderStaticPoster({
+      captions: parseInt(params.get("captions") || "120", 10),
+      semantic: parseInt(params.get("semantic") || "30", 10),
+    });
+    return;
+  }
 
   document.getElementById("startBtn").addEventListener("click", () => {
     document.getElementById("start").style.display = "none";
