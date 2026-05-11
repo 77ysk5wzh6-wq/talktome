@@ -138,22 +138,10 @@ async function render({ width, height, captions, semantic, outName, scale = 1 })
   await page.screenshot({ path: captionsRawPng, type: "png", fullPage: true, omitBackground: true });
   console.log(`[layer] captions raw -> ${path.basename(captionsRawPng)}`);
 
-  // Poem layer: page hides captions/wires and shows the quatrain alone.
-  // We capture it transparent + black glyphs; sharp does the difference
-  // blend during the composite step so wires/captions invert beneath it.
-  await page.evaluate(() => window.__showPoemOnly && window.__showPoemOnly());
-  await page.waitForTimeout(200);
-  const poemRawPng = path.join(OUT_DIR, `_poem_raw_${stamp}.png`);
-  await page.screenshot({ path: poemRawPng, type: "png", fullPage: true, omitBackground: true });
-  console.log(`[layer] poem raw -> ${path.basename(poemRawPng)}`);
-
   await browser.close();
   server.close();
 
-  // Upscale captions + poem to the final canvas size if rendering at a
-  // smaller page. lanczos3 keeps text edges crisp for print. Force RGBA
-  // so the layers composite over what's beneath instead of dropping
-  // alpha during resize.
+  // Upscale captions to the final canvas size.
   async function prep(rawPath, finalName) {
     const out = path.join(OUT_DIR, `_${finalName}_${stamp}.png`);
     let img = sharp(rawPath).ensureAlpha();
@@ -163,7 +151,25 @@ async function render({ width, height, captions, semantic, outName, scale = 1 })
     return out;
   }
   const captionsPng = await prep(captionsRawPng, "captions");
-  const poemPng = await prep(poemRawPng, "poem");
+
+  // Poem layer comes from a hand-authored PNG dropped into out/.
+  // Expectations: white glyphs on a transparent canvas, sized exactly
+  // to (width x height). If a per-orientation file isn't there we fall
+  // back to the SVG-generated layer.
+  const handPoem = path.join(OUT_DIR, "_poem_sample_black.png");
+  let poemPng;
+  if (fs.existsSync(handPoem)) {
+    const meta = await sharp(handPoem).metadata();
+    if (meta.width === width && meta.height === height) {
+      poemPng = handPoem;
+      console.log(`[layer] poem -> using ${path.basename(handPoem)}`);
+    }
+  }
+  if (!poemPng) {
+    console.log(`[layer] rasterise poem (server-side) ...`);
+    poemPng = path.join(OUT_DIR, `_poem_${stamp}.png`);
+    await renderPoemPng(width, height, poemPng);
+  }
 
   // Vector layers: resvg renders directly at the final width, so wire
   // strokes stay crisp regardless of scale.
@@ -194,6 +200,61 @@ async function render({ width, height, captions, semantic, outName, scale = 1 })
     .png({ compressionLevel: 6 })
     .toFile(finalPng);
   console.log(`[saved] ${finalPng}`);
+}
+
+// Server-side poem layer. Six fixed lines in Bebas Neue, justified
+// edge-to-edge with a small horizontal inset so trailing punctuation
+// never clips. The text is white because the final composite uses
+// `difference` blend -- white on white = black (visible), white on a
+// coloured pixel = that colour's complement.
+const POEM_LINES = [
+  "Ah Love! could thou and I with",
+  "Fate conspire To grasp this",
+  "sorry Scheme of Things entire,",
+  "Would not we shatter it to",
+  "bits - and then Re-mould it",
+  "nearer to the Heart's Desire!",
+];
+const FONT_PATH = path.resolve(__dirname, "fonts/BebasNeue-Regular.ttf");
+
+async function renderPoemPng(width, height, outPath, opts = {}) {
+  const lines = POEM_LINES.length;
+  // Uniform margin on all four sides.
+  const margin = Math.round(Math.min(width, height) * 0.04);
+  const innerW = width - margin * 2;
+  const innerH = height - margin * 2;
+  // Line height (== row pitch). Smaller scaleY pulls the rows further
+  // apart visually; the row pitch itself stays innerH / lines.
+  const lineH = innerH / lines;
+  // Cap height fills only ~70% of the row, leaving generous leading.
+  const fontSize = Math.round(lineH * 0.95);
+  const scaleY = opts.scaleY ?? 1.0;
+  const color = opts.color || "white";
+  const escapedLines = POEM_LINES.map(l =>
+    l.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  );
+  const parts = [];
+  parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`);
+  parts.push(`<style>text { font-family: "Bebas Neue"; font-weight: 400; fill: ${color}; }</style>`);
+  for (let i = 0; i < lines; i++) {
+    const yBaseline = margin + lineH * (i + 0.78);
+    parts.push(
+      `<g transform="translate(0,${yBaseline.toFixed(1)}) scale(1,${scaleY})">` +
+      `<text x="${margin}" y="0" ` +
+      `font-size="${fontSize}" textLength="${innerW}" lengthAdjust="spacing">` +
+      escapedLines[i] +
+      `</text>` +
+      `</g>`
+    );
+  }
+  parts.push(`</svg>`);
+  const svg = parts.join("\n");
+  const r = new Resvg(svg, {
+    fitTo: { mode: "original" },
+    background: "rgba(0,0,0,0)",
+    font: { fontFiles: [FONT_PATH], loadSystemFonts: false, defaultFontFamily: "Bebas Neue" },
+  });
+  fs.writeFileSync(outPath, r.render().asPng());
 }
 
 async function rasterise(svg, width, height, outPath) {
@@ -232,7 +293,7 @@ const PRESETS = {
   full_landscape: {
     // A3 landscape, 600 dpi.
     width: 9933, height: 7016,
-    captions: 1100, semantic: 80,
+    captions: 1430, semantic: 30,
     scale: 2.25,
     outName: "poster_full_landscape",
   },

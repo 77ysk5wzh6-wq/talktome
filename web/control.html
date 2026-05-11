@@ -47,6 +47,7 @@
   .swatch.freeze { background: transparent; color: #444; border-color: #444; }
   .swatch.poem   { background: #000; color: #000; border-color: #000; }
   .swatch.mute   { background: #888; color: #888; border-color: #888; }
+  .swatch.zoom   { background: transparent; color: #444; border-color: #444; border-style: dotted; }
   .label { color: #444; font-weight: 600; }
   .upos  { color: #888; font-size: 9px; margin-left: auto; }
   hr { border: none; border-top: 1px solid #ddd; margin: 8px 0; }
@@ -95,6 +96,11 @@
   <span class="label">MUTE</span>
   <span class="upos">all audio</span>
 </button>
+<button class="row" id="zoomBtn">
+  <span class="swatch zoom"></span>
+  <span class="label">ZOOM</span>
+  <span class="upos">3× centre</span>
+</button>
 <hr>
 <form id="userForm" autocomplete="off">
   <input type="text" id="userText" maxlength="60"
@@ -131,6 +137,7 @@ const catBtns = document.querySelectorAll("button.row[data-cat]");
 const freezeBtn = document.getElementById("freezeBtn");
 const poemBtn   = document.getElementById("poemBtn");
 const muteBtn   = document.getElementById("muteBtn");
+const zoomBtn   = document.getElementById("zoomBtn");
 
 catBtns.forEach(btn => {
   btn.addEventListener("click", () => {
@@ -140,6 +147,7 @@ catBtns.forEach(btn => {
 freezeBtn.addEventListener("click", () => bus.postMessage({ type: "toggle-freeze" }));
 poemBtn  .addEventListener("click", () => bus.postMessage({ type: "toggle-poem" }));
 muteBtn  .addEventListener("click", () => bus.postMessage({ type: "toggle-mute" }));
+zoomBtn  .addEventListener("click", () => bus.postMessage({ type: "toggle-zoom" }));
 
 bus.addEventListener("message", (ev) => {
   const m = ev.data;
@@ -148,6 +156,7 @@ bus.addEventListener("message", (ev) => {
   freezeBtn.classList.toggle("active", !!m.frozen);
   poemBtn.classList.toggle("active", !!m.poemOn);
   muteBtn.classList.toggle("active", !!m.muted);
+  zoomBtn.classList.toggle("active", !!m.zoomed);
 });
 
 // User-input form: sends the text over the bus, then waits for the

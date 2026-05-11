@@ -8,7 +8,13 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Nanum+Myeongjo:wght@400;700&family=Noto+Serif+KR:wght@400;600&family=Noto+Serif+JP:wght@400;600&family=Noto+Serif+SC:wght@400;600&family=Noto+Naskh+Arabic:wght@400;600&display=swap" rel="stylesheet">
 <style>
-  :root { color-scheme: light; }
+  :root {
+    color-scheme: light;
+    /* JS sets this once on load: innerWidth / 1512 (14" MacBook is the
+       baseline). Every px-tuned size below multiplies by it, so wider
+       displays scale up and narrow / portrait phones scale down. */
+    --scale: 1;
+  }
   html, body {
     margin: 0; padding: 0; height: 100%;
     color: #111;
@@ -134,14 +140,18 @@
   }
   #poem-bg .poem .pw {
     display: inline-block;
+    /* Default invisible. JS pings each word's `.lit` class on/off to
+       simulate a flickering broken lamp during enter/exit. */
+    opacity: 0;
   }
+  #poem-bg .poem .pw.lit { opacity: 1; }
   #wires path {
     fill: none;
-    stroke-width: 0.22;
+    stroke-width: calc(0.22px * var(--scale));
     stroke-opacity: 0.85;
   }
   #wires rect, #wires ellipse {
-    stroke-width: 0.22;
+    stroke-width: calc(0.22px * var(--scale));
     stroke-opacity: 0.85;
     /* Fill is set per-category below; per-element fill-opacity carries the
        size (main/sub/micro) into a transparency level. */
@@ -168,7 +178,7 @@
      and #wires-bg need the same rules because the semantic layer lives in
      the bg SVG (so it sits behind caption text). */
   #wires path.semantic, #wires-bg path.semantic {
-    fill: #ff5e00;
+    fill: #fff200;
     fill-opacity: 0.55;
     stroke: none;
   }
@@ -180,7 +190,7 @@
   /* Cosine-similarity label drawn at the centre of each semantic band,
      rotated to follow the band's direction. */
   #wires-bg text.sem-sim {
-    fill: #ff5e00;
+    fill: #aaa;
     font: 8px/1 "Helvetica Neue", "Arial", sans-serif;
     font-weight: 600;
     letter-spacing: 0.05em;
@@ -194,7 +204,8 @@
      Slow 600ms fade so it reads as the scene drifting; faded layer never
      drops below ~0.07 so the rest of the screen barely persists. === */
   .caption { transition: opacity 600ms ease; }
-  #wires path, #wires rect, #wires ellipse, #wires circle {
+  #wires path, #wires rect, #wires ellipse, #wires circle,
+  #wires-bg path, #wires-bg rect, #wires-bg text {
     transition: opacity 600ms ease;
   }
   /* Brief glitch flash on focus change. Stripped of `filter:` (which
@@ -210,6 +221,23 @@
   }
   body.focus-flash #stage,
   body.focus-flash #wires { animation: focusFlash 200ms steps(6, end); }
+  /* Zoom toggle: scale every interactive layer together so they stay
+     aligned. We wrap stage + both wire SVGs in a common transformed
+     parent (#zoom-wrap) so a single transform drives them all and the
+     captions, boxes and wires don't drift apart. */
+  #zoom-wrap {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    transform-origin: 50% 50%;
+    transition: transform 11000ms cubic-bezier(0.4, 0, 0.2, 1);
+    /* Promote to its own GPU layer up front so the transform animates
+       on the compositor thread instead of triggering layout / paint
+       work on the main thread each frame. */
+    will-change: transform;
+    backface-visibility: hidden;
+  }
+  body.zoomed #zoom-wrap { transform: scale(5); }
   body[data-focus-cat] .caption { opacity: 0.12; }
   body[data-focus-cat] #wires path,
   body[data-focus-cat] #wires rect,
@@ -306,31 +334,51 @@
   /* Caption tier opacity: huge > main > sub > micro. */
   .caption.huge {
     /* 2.5x main: dominant, the loudest line on screen. */
-    font-size: 42px; font-weight: 700; color: #000; opacity: 1;
-    max-width: min(820px, 70vw);
+    font-size: calc(42px * var(--scale)); font-weight: 700; color: #000; opacity: 1;
+    max-width: min(calc(820px * var(--scale)), 70vw);
   }
   /* User-typed input from the controls window: bigger than huge so it
      visibly carries the audience's thread. */
   .caption.huge.user {
-    font-size: 56px; font-weight: 800;
-    max-width: min(1100px, 86vw);
+    font-size: calc(56px * var(--scale)); font-weight: 800;
+    max-width: min(calc(1100px * var(--scale)), 86vw);
     letter-spacing: -0.005em;
   }
+  /* Highlighter-yellow brackets wrap the user's text so it reads as a
+     live, in-the-moment annotation distinct from the recorded clips.
+     Brackets also carry the .ch class so they ride the standard
+     slide-in/out animation; placing them at the head/tail of the spans
+     list makes the opening bracket arrive first and the closing one
+     leave last. */
+  .caption.huge.user .ch.user-bracket {
+    color: #fff200;
+    font-weight: 900;
+    font-size: 1.4em;
+    margin: 0 0.14em;
+    /* Layered text-shadows fatten the glyph stroke without changing the
+       font, giving the bracket a heavier, almost ultra-bold weight. */
+    text-shadow:
+       1px 0 0 #fff200, -1px 0 0 #fff200,
+       0 1px 0 #fff200,  0 -1px 0 #fff200,
+       1px 1px 0 #fff200, -1px -1px 0 #fff200,
+       1px -1px 0 #fff200, -1px 1px 0 #fff200,
+       0 0 2px #fff200;
+  }
   .caption.main {
-    font-size: 17px; font-weight: 600; color: #000; opacity: 0.85;
-    max-width: min(340px, 32vw);
+    font-size: calc(17px * var(--scale)); font-weight: 600; color: #000; opacity: 0.85;
+    max-width: min(calc(340px * var(--scale)), 32vw);
   }
   .caption.sub {
-    font-size: 11px; font-weight: 400; color: #444; opacity: 0.55;
-    max-width: min(220px, 22vw);
+    font-size: calc(11px * var(--scale)); font-weight: 400; color: #444; opacity: 0.55;
+    max-width: min(calc(220px * var(--scale)), 22vw);
   }
   .caption.sub.deeper {
-    font-size: 9px; color: #777; opacity: 0.45;
-    max-width: min(180px, 18vw);
+    font-size: calc(9px * var(--scale)); color: #777; opacity: 0.45;
+    max-width: min(calc(180px * var(--scale)), 18vw);
   }
   .caption.micro {
-    font-size: 7px; color: #aaa; opacity: 0.30;
-    max-width: min(140px, 14vw);
+    font-size: calc(7px * var(--scale)); color: #aaa; opacity: 0.30;
+    max-width: min(calc(140px * var(--scale)), 14vw);
     font-weight: 400;
   }
   .ch {
@@ -359,9 +407,11 @@
 </head>
 <body>
 <div id="poem-bg"></div>
-<svg id="wires-bg" xmlns="http://www.w3.org/2000/svg"></svg>
-<div id="stage"></div>
-<svg id="wires" xmlns="http://www.w3.org/2000/svg"></svg>
+<div id="zoom-wrap">
+  <svg id="wires-bg" xmlns="http://www.w3.org/2000/svg"></svg>
+  <div id="stage"></div>
+  <svg id="wires" xmlns="http://www.w3.org/2000/svg"></svg>
+</div>
 <video id="cam" autoplay muted playsinline style="display:none"></video>
 <!-- The interactive controls live in a separate window (web/control.html).
      Click this small trigger to open it; the two windows talk over a
@@ -396,14 +446,20 @@ const TRACK_LAYERS = [
   { name: "sm_any",  tier: "any", silent: true, volume: 0, captionClass: "caption main" },
   { name: "sm_any2", tier: "any", silent: true, volume: 0, captionClass: "caption main" },
   { name: "sm_any3", tier: "any", silent: true, volume: 0, captionClass: "caption main" },
+  { name: "sm_any4", tier: "any", silent: true, volume: 0, captionClass: "caption main" },
+  { name: "sm_any5", tier: "any", silent: true, volume: 0, captionClass: "caption main" },
   // Silent visual-only sub-size tracks.
   { name: "ss_en", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "en" },
   { name: "ss_ar", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "ar" },
   { name: "ss_no", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "no" },
   { name: "ss_ja", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "ja" },
+  { name: "ss_zh", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "zh" },
+  { name: "ss_ko", tier: "any", silent: true, volume: 0, captionClass: "caption sub", lang: "ko" },
   { name: "ss_any",  tier: "any", silent: true, volume: 0, captionClass: "caption sub" },
   { name: "ss_any2", tier: "any", silent: true, volume: 0, captionClass: "caption sub" },
   { name: "ss_any3", tier: "any", silent: true, volume: 0, captionClass: "caption sub" },
+  { name: "ss_any4", tier: "any", silent: true, volume: 0, captionClass: "caption sub" },
+  { name: "ss_any5", tier: "any", silent: true, volume: 0, captionClass: "caption sub" },
   // Silent micro tracks.
   { name: "s_en", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "en" },
   { name: "s_zh", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "zh" },
@@ -416,6 +472,12 @@ const TRACK_LAYERS = [
   { name: "s_en2", tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "en" },
   { name: "s_any",  tier: "any", silent: true, volume: 0, captionClass: "caption micro" },
   { name: "s_any2", tier: "any", silent: true, volume: 0, captionClass: "caption micro" },
+  { name: "s_any3", tier: "any", silent: true, volume: 0, captionClass: "caption micro" },
+  { name: "s_any4", tier: "any", silent: true, volume: 0, captionClass: "caption micro" },
+  { name: "s_any5", tier: "any", silent: true, volume: 0, captionClass: "caption micro" },
+  { name: "s_ar2",  tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "ar" },
+  { name: "s_no2",  tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "no" },
+  { name: "s_ja2",  tier: "any", silent: true, volume: 0, captionClass: "caption micro", lang: "ja" },
 ];
 
 // Per-language playback boost. KsponSpeech is recorded a touch quieter than
@@ -426,7 +488,9 @@ const LANG_BOOST = { en: 1.0, zh: 1.0, ko: 1.4, ja: 1.0, ar: 1.0, no: 1.0 };
 function clampVol(v) { return Math.max(0, Math.min(1, v)); }
 
 const PRELAP_SEC = 1.5;        // 한 트랙 내에서 다음 클립을 이전 끝나기 1.5초 전에 시작 (강한 중첩)
-const SAFE_MARGIN_PX = 16;
+// Mutable so the on-load scale calculation can resize the grid for
+// non-14-inch viewports without touching every consumer.
+let SAFE_MARGIN_PX = 16;
 const TRACK_START_STAGGER_MS = 800;
 const SLIDE_LEAD_MS = 400;
 const SLIDE_OUT_MS = 400;
@@ -749,8 +813,8 @@ let captionSeq = 0;
 // each cell can host at most ~one active caption rect at a time -- if a cell
 // already overlaps a live caption, we try another random cell. Falls back to
 // random placement if the grid is saturated.
-const GRID_CELL_W = 64;
-const GRID_CELL_H = 32;
+let GRID_CELL_W = 64;
+let GRID_CELL_H = 32;
 const GRID_PLACEMENT_TRIES = 24;
 
 function placeCaption(el) {
@@ -795,13 +859,11 @@ function placeCaption(el) {
     }
     return false;
   }
-  // Min distance from candidate centre to nearest huge centre. Used as a
-  // score so we pick the farthest-from-other-huge spot when placing a huge.
-  function minHugeDist(x, y) {
-    if (!hugeRects.length) return Infinity;
+  function minDistToRects(x, y, rects) {
+    if (!rects.length) return Infinity;
     const cx = x + w / 2, cy = y + h / 2;
     let best = Infinity;
-    for (const r of hugeRects) {
+    for (const r of rects) {
       const rx = r.left + r.width / 2;
       const ry = r.top + r.height / 2;
       const d = Math.hypot(cx - rx, cy - ry);
@@ -810,6 +872,11 @@ function placeCaption(el) {
     return best;
   }
 
+  // Collect every valid (non-overlapping) candidate from the random
+  // grid sampling, then pick the one whose distance to the closest
+  // existing caption is largest. Spreads captions more evenly without
+  // any heatmap / heavier bookkeeping. Huge captions ALSO honour the
+  // HUGE_GAP inflation rule.
   let chosenX = -1, chosenY = -1, chosenScore = -1;
   for (let t = 0; t < GRID_PLACEMENT_TRIES; t++) {
     const cx = Math.floor(Math.random() * cellsX);
@@ -817,9 +884,6 @@ function placeCaption(el) {
     const x = SAFE_MARGIN_PX + cx * GRID_CELL_W;
     const y = SAFE_MARGIN_PX + cy * GRID_CELL_H;
     if (x > maxX || y > maxY) continue;
-    // For huge captions, treat other huge rects with an inflated pad so the
-    // overlap test rejects spots that are merely near another huge, not
-    // just literally touching it.
     if (isHuge && hugeRects.length) {
       let nearHuge = false;
       for (const r of hugeRects) {
@@ -831,16 +895,13 @@ function placeCaption(el) {
       if (nearHuge) continue;
     }
     if (rectOverlaps(x, y, 4)) continue;
-    if (isHuge) {
-      // Among acceptable candidates, prefer the one furthest from existing
-      // huge captions. Keep sampling until we run out of tries.
-      const score = minHugeDist(x, y);
-      if (score > chosenScore) {
-        chosenScore = score; chosenX = x; chosenY = y;
-      }
-    } else {
-      chosenX = x; chosenY = y;
-      break;
+    // Score: distance to the nearest existing caption centre. Bigger
+    // is better -- it means this candidate is in a sparser region.
+    const score = isHuge
+      ? minDistToRects(x, y, hugeRects)
+      : minDistToRects(x, y, occupiedRects);
+    if (score > chosenScore) {
+      chosenScore = score; chosenX = x; chosenY = y;
     }
   }
   if (chosenX < 0) {
@@ -957,7 +1018,11 @@ function slideOutChars(el, totalMs) {
   const spans = Array.from(el.querySelectorAll(".ch.on"));
   if (spans.length === 0) { el.remove(); return; }
   el.style.setProperty("--slide-ms", SLIDE_OUT_MS + "ms");
-  // Apply off-left in the original order (left-to-right) so characters fly out one by one.
+  // Don't flag every word as exiting up front -- that would clear all
+  // the boxes at once. The wire-loop's cold path will mark each word
+  // _exiting on the frame its first .ch turns off-left, which lines
+  // up with the visual sweep from left to right.
+  el._exiting = true;
   scheduleCharJob(spans, totalMs, "off-left", () => el.remove(), null);
 }
 
@@ -1119,64 +1184,65 @@ class Track {
   }
 }
 
-// === Ambient piano background ===
-// C minor pentatonic (a calm, "lo-fi" feeling scale): C, Eb, F, G, Bb across 3 octaves
-const PIANO_FREQS = (() => {
-  const base = [261.63, 311.13, 349.23, 392.00, 466.16]; // C4, Eb4, F4, G4, Bb4
-  const out = [];
-  for (const f of base) out.push(f * 0.5, f, f * 2);
-  return out;
-})();
-
 let audioCtx = null;
+// Master gain on the ambient bed. Named pianoGain for legacy reasons --
+// the mute toggle and freeze code still reference it.
 let pianoGain = null;
 
-// Persistent shared filter on the piano bus -> only oscillators are created per-note.
-// Cuts node creation/disconnect work to ~1/3 vs. building the full chain each time.
-let pianoFilter = null;
+// Orchestra tuning bed. We load the clip once into an AudioBuffer and
+// then ping-pong two BufferSource nodes with a cross-fade so the seam is
+// inaudible. pianoGain is reused as the master gain so the existing
+// mute toggle keeps working without changes.
+const TUNING_URL = "audio_bg/orchestra_tuning_cellokratzer.mp3";
+const TUNING_VOLUME = 0.3;
+const TUNING_CROSSFADE_S = 5;
+// Use only the segment from 17s to the end of the file (deep into the
+// settled wash; the start of the recording has the sparser oboe-A leads).
+const TUNING_LOOP_START_S = 17;
 
-function pianoNote(freq, when, duration = 2.5, vel = 0.18) {
-  const ctx = audioCtx;
-  const osc = ctx.createOscillator();
-  osc.type = "triangle";
-  osc.frequency.value = freq;
-  const g = ctx.createGain();
-  osc.connect(g).connect(pianoFilter);
-
-  const t0 = when;
-  g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(vel, t0 + 0.015);
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
-
-  osc.start(t0);
-  osc.stop(t0 + duration + 0.05);
-  osc.onended = () => {
-    try { osc.disconnect(); g.disconnect(); } catch (e) {}
-  };
-}
-
-function startPianoAmbient() {
+async function startPianoAmbient() {
   if (!audioCtx) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   }
   pianoGain = audioCtx.createGain();
-  pianoGain.gain.value = 0.7;
-  pianoFilter = audioCtx.createBiquadFilter();
-  pianoFilter.type = "lowpass";
-  pianoFilter.frequency.value = 1800;
-  pianoFilter.Q.value = 0.5;
-  pianoFilter.connect(pianoGain).connect(audioCtx.destination);
+  pianoGain.gain.value = muted ? 0 : TUNING_VOLUME;
+  pianoGain.connect(audioCtx.destination);
 
-  function scheduleNext() {
-    const now = audioCtx.currentTime;
-    const freq = PIANO_FREQS[Math.floor(Math.random() * PIANO_FREQS.length)];
-    const dur = 2.0 + Math.random() * 2.5;
-    const vel = 0.10 + Math.random() * 0.12;
-    pianoNote(freq, now + 0.05, dur, vel);
-    const gap = 1.2 + Math.random() * 2.8;
-    setTimeout(scheduleNext, gap * 1000);
+  let buffer;
+  try {
+    const res = await fetch(TUNING_URL);
+    const ab = await res.arrayBuffer();
+    buffer = await audioCtx.decodeAudioData(ab);
+  } catch (e) {
+    console.warn("tuning load failed", e);
+    return;
   }
-  scheduleNext();
+
+  // Use only [TUNING_LOOP_START_S .. end] of the source clip. Each
+  // BufferSourceNode starts from that offset and plays for `dur`
+  // seconds; the next one starts `xf` seconds before this one ends so
+  // their gain ramps cross-fade.
+  const segStart = Math.max(0, Math.min(TUNING_LOOP_START_S, buffer.duration - 1));
+  const dur = buffer.duration - segStart;
+  const xf  = Math.min(TUNING_CROSSFADE_S, dur * 0.3);
+
+  function scheduleSource(startAt) {
+    const src = audioCtx.createBufferSource();
+    src.buffer = buffer;
+    const g = audioCtx.createGain();
+    src.connect(g).connect(pianoGain);
+    g.gain.setValueAtTime(0.0001, startAt);
+    g.gain.linearRampToValueAtTime(1, startAt + xf);
+    g.gain.setValueAtTime(1, startAt + dur - xf);
+    g.gain.linearRampToValueAtTime(0.0001, startAt + dur);
+    // start(when, offset, duration) -- play only the [segStart, end] slice.
+    src.start(startAt, segStart, dur);
+    src.stop(startAt + dur + 0.05);
+    const nextAt = startAt + dur - xf;
+    const delayMs = (nextAt - audioCtx.currentTime - 0.5) * 1000;
+    setTimeout(() => scheduleSource(nextAt), Math.max(0, delayMs));
+  }
+  scheduleSource(audioCtx.currentTime + 0.05);
 }
 
 // === Circuit wires connecting same-category words across captions ===
@@ -1684,17 +1750,27 @@ function startWireLoop() {
         w._chTotal = w.querySelectorAll(".ch").length;
       }
 
-      // Cheap visibility check: how many .ch are .on? Done with childElement
-      // lookups counted directly on the word so we don't pay for two
-      // separate querySelectorAll calls.
-      let onCount = 0, offLeftCount = 0;
-      for (let c = w.firstChild; c; c = c.nextSibling) {
-        if (c.nodeType !== 1 || !c.classList || !c.classList.contains("ch")) continue;
-        if (c.classList.contains("off-left")) offLeftCount++;
-        else if (c.classList.contains("on"))  onCount++;
+      // Per-word state cache. Once a word has fully arrived we set
+      // `_stable` to skip the per-`.ch` scan. While the parent caption
+      // is sliding out, we still need to re-check this word because
+      // its first .ch may have just turned off-left -- when that
+      // happens we set `_exiting` on the word and skip it.
+      if (w._exiting) continue;
+      let onCount = 0;
+      const capExiting = w._cap && w._cap._exiting;
+      if (!w._stable || capExiting) {
+        let offLeftCount = 0;
+        for (let c = w.firstChild; c; c = c.nextSibling) {
+          if (c.nodeType !== 1 || !c.classList || !c.classList.contains("ch")) continue;
+          if (c.classList.contains("off-left")) offLeftCount++;
+          else if (c.classList.contains("on"))  onCount++;
+        }
+        if (offLeftCount > 0) { w._exiting = true; continue; }
+        if (onCount === 0) continue;
+        if (!w._stable && onCount >= w._chTotal) w._stable = true;
+      } else {
+        onCount = w._chTotal;
       }
-      if (onCount === 0) continue;
-      if (offLeftCount > 0) continue;
 
       // _finalRect is set once when every char has arrived, and reused
       // forever after. Use offsetLeft/Top + offsetWidth/Height so the
@@ -1725,6 +1801,14 @@ function startWireLoop() {
       const wIdx = w._wordIdx;
       const lastIdx = w._lastIdxInCap;
       const capId = w._capId;
+      // The drawn box is shrunk vertically by 10% (insetY) on top and
+      // bottom, so its visible edges sit at r.top+insetY .. r.bottom-insetY.
+      // The port circles MUST land on those edges, not on the word's raw
+      // bounding box, otherwise huge captions (which have a much larger
+      // r.height) show ports floating above/below the visible box.
+      const boxInsetY = (r.height * 0.10) / 2;
+      const boxTop = r.top + boxInsetY;
+      const boxBot = r.bottom - boxInsetY;
       buckets[cat].push({
         capId,
         wordIdx: wIdx,
@@ -1732,10 +1816,10 @@ function startWireLoop() {
         isLastInCap:  wIdx === lastIdx,
         fillOpacity: w._fillOp,
         x: cx, y: cy, rect: r,
-        left:   { x: r.left  - PAD, y: cy },
-        right:  { x: r.right + PAD, y: cy },
-        top:    { x: cx,            y: r.top    - PAD },
-        bottom: { x: cx,            y: r.bottom + PAD },
+        left:   { x: r.left  - PAD, y: (boxTop + boxBot) / 2 },
+        right:  { x: r.right + PAD, y: (boxTop + boxBot) / 2 },
+        top:    { x: cx,            y: boxTop - PAD },
+        bottom: { x: cx,            y: boxBot + PAD },
       });
       // Populate the semantic word index here so phase 7 doesn't have to
       // walk the DOM again to rebuild it.
@@ -1758,6 +1842,9 @@ function startWireLoop() {
       box.setAttribute("height", (r.height - insetY * 2 + PAD * 2).toFixed(1));
       box.setAttribute("rx", "0");
       box.setAttribute("fill-opacity", p.fillOpacity);
+      // Huge / main captions get a 2x stroke so their boxes read as
+      // load-bearing among the smaller sub/micro ones.
+      box.setAttribute("stroke-width", p.fillOpacity >= 0.30 ? 1.0 : 0.22);
       p.usedPorts = new Set();
     }
     for (const p of buckets.ACTION) {
@@ -1771,6 +1858,7 @@ function startWireLoop() {
       box.setAttribute("height", (r.height - insetY * 2 + PAD * 2).toFixed(1));
       box.setAttribute("rx", (Math.min(r.height, r.width) * 0.45).toFixed(1));
       box.setAttribute("fill-opacity", p.fillOpacity);
+      box.setAttribute("stroke-width", p.fillOpacity >= 0.30 ? 1.0 : 0.22);
       p.usedPorts = new Set();
     }
     for (const p of buckets.QUALITY) {
@@ -1782,6 +1870,7 @@ function startWireLoop() {
       e.setAttribute("rx", (r.width / 2 + PAD + 2).toFixed(1));
       e.setAttribute("ry", (r.height / 2 * (1 - SHRINK) + PAD).toFixed(1));
       e.setAttribute("fill-opacity", p.fillOpacity);
+      e.setAttribute("stroke-width", p.fillOpacity >= 0.30 ? 1.0 : 0.22);
       p.usedPorts = new Set();
     }
     for (const p of buckets.RELATION) {
@@ -1795,6 +1884,7 @@ function startWireLoop() {
       box.setAttribute("height", (r.height - insetY * 2 + PAD * 2).toFixed(1));
       box.setAttribute("rx", "0");
       box.setAttribute("fill-opacity", p.fillOpacity);
+      box.setAttribute("stroke-width", p.fillOpacity >= 0.30 ? 1.0 : 0.22);
       p.usedPorts = new Set();
     }
 
@@ -2078,7 +2168,7 @@ function startWireLoop() {
         const stops = [];
         for (let i = 0; i < 4; i++) {
           const s = document.createElementNS("http://www.w3.org/2000/svg", "stop");
-          s.setAttribute("stop-color", "#ff5e00");
+          s.setAttribute("stop-color", "#fff200");
           s.setAttribute("stop-opacity", "0");
           g.appendChild(s);
           stops.push(s);
@@ -2244,7 +2334,7 @@ function startWireLoop() {
       // Avoid re-setting fill / fill-opacity if they're already correct;
       // pool boxes get reused frame to frame.
       if (box._lastFo !== fo) {
-        box.style.fill = "#ff5e00";
+        box.style.fill = "#fff200";
         box.setAttribute("fill-opacity", fo);
         box._lastFo = fo;
       }
@@ -2292,10 +2382,10 @@ function startWireLoop() {
   };
 }
 
-// Background poem: simple on/off toggle. The full quatrain sits in six
-// fixed lines, each justified edge-to-edge across the viewport. JS only
-// handles font-size sizing; the button just shows/hides the layer.
-const BG_POEM_LINES = [
+// Background poem: simple on/off toggle. JS picks the line break-up
+// based on viewport shape so portrait phones don't try to fit a long
+// single line and shrink the font to nothing.
+const BG_POEM_LINES_LANDSCAPE = [
   "Ah Love! could thou and I with",
   "Fate conspire To grasp this",
   "sorry Scheme of Things entire,",
@@ -2303,18 +2393,159 @@ const BG_POEM_LINES = [
   "bits - and then Re-mould it",
   "nearer to the Heart's Desire!",
 ];
+// Shorter lines for portrait / square viewports (aspect ratio < ~0.9):
+// broken on natural phrase boundaries so each fits comfortably across
+// the narrow width without orphan words at the end.
+const BG_POEM_LINES_PORTRAIT = [
+  "Ah Love! could thou",
+  "and I with Fate",
+  "conspire To grasp",
+  "this sorry Scheme",
+  "of Things entire,",
+  "Would not we shatter",
+  "it to bits - and then",
+  "Re-mould it nearer",
+  "to the Heart's Desire!",
+];
+function poemLinesForViewport() {
+  const ar = window.innerWidth / Math.max(1, window.innerHeight);
+  return ar < 0.9 ? BG_POEM_LINES_PORTRAIT : BG_POEM_LINES_LANDSCAPE;
+}
 
 let poemBgController = null;
+
+// Broken-lamp flicker. Each word picks its own settle time inside the
+// POEM_FLICKER_MS window, and the pulses leading up to that point are
+// short stabs of light against longer dark gaps -- "mostly broken,
+// occasionally catching".
+const POEM_FLICKER_IN_MS  = 1500;
+const POEM_FLICKER_OUT_MS = 500;
+
+// A tiny "tick" sound played each time a word lights up during the
+// flicker. Synthesised: a 1ms band-passed noise burst at ~3-6kHz with
+// a snappy exponential decay. Cheap to schedule, doesn't need an asset.
+// Neon-sign / electric-tick click. Higher and louder than before so it
+// reads as a sharp electric snap rather than a muffled tap. The
+// `poemTickEnabled` gate stops stragglers from sounding after the
+// poem layer has been dismissed.
+let poemTickEnabled = false;
+// Fluorescent starter click. Synthesised as a tiny impulse exciting
+// three parallel high-Q bandpass resonators -- one each for the
+// magnetic ballast hum body, the metal can resonance, and the
+// bimetal contact snap. The Q values give the "ringing tail" you
+// hear on a real starter; the per-tick frequency jitter keeps the
+// repeats from sounding like the same digital sample.
+function poemTick(volume = 0.73) {
+  if (!poemTickEnabled) return;
+  if (muted) return;
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime;
+
+  // Single-sample-ish impulse: 1ms of dense noise. All three resonators
+  // share it so the modes ring in phase, the way they would on a real
+  // mechanical excitation.
+  const len = Math.floor(audioCtx.sampleRate * 0.001);
+  const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1);
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+
+  // 60Hz HPF on the bus so the ballast resonator doesn't read as a
+  // kick drum thump.
+  const hpf = audioCtx.createBiquadFilter();
+  hpf.type = "highpass";
+  hpf.frequency.value = 60;
+  const busGain = audioCtx.createGain();
+  busGain.gain.value = volume;
+  hpf.connect(busGain).connect(audioCtx.destination);
+
+  // ±10% frequency jitter, ±15% gain jitter on every tick.
+  const j  = (base, pct) => base * (1 + (Math.random() * 2 - 1) * pct);
+  const modes = [
+    // Magnetostrictive ballast hum -- low, long tail, gives the "thunk".
+    { freq: j(110, 0.10),  q: 30, gain: j(0.6,  0.15), decay: 0.060 },
+    // Starter-can / fixture resonance -- mid-low, the hollow body.
+    { freq: j(850, 0.10),  q: 20, gain: j(0.45, 0.15), decay: 0.025 },
+    // Bimetal contact snap -- main bright click.
+    { freq: j(5000, 0.10), q:  8, gain: j(1.1,  0.15), decay: 0.006 },
+    // A second softer high band for body, without the piercing top.
+    { freq: j(7500, 0.10), q:  6, gain: j(0.55, 0.15), decay: 0.005 },
+  ];
+  for (const m of modes) {
+    const bp = audioCtx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = m.freq;
+    bp.Q.value = m.q;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(m.gain, t0);
+    // Tiny attack to soften the digital edge, then exponential body.
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + m.decay);
+    src.connect(bp).connect(g).connect(hpf);
+  }
+  src.start(t0);
+  src.stop(t0 + 0.1);
+}
+
+function flickerWords(spans, finalState) {
+  const timers = [];
+  const windowMs = finalState === "on" ? POEM_FLICKER_IN_MS : POEM_FLICKER_OUT_MS;
+  // Roughly 60% of the words flicker; the rest just snap on/off at a
+  // random moment within the window. Decide per-word independently so
+  // the spread reads as natural.
+  for (const w of spans) {
+    const willFlicker = Math.random() < 0.6;
+
+    // settle time within the window. enter skews early, exit skews late.
+    const r = Math.random();
+    const skewed = finalState === "on"
+      ? r * r
+      : Math.pow(r, 0.18);
+    const settleAt = Math.floor(skewed * windowMs);
+
+    if (!willFlicker) {
+      // Pop straight to the final state at settleAt.
+      timers.push(setTimeout(() => {
+        if (finalState === "on") { w.classList.add("lit"); poemTick(); }
+        else w.classList.remove("lit");
+      }, settleAt));
+      continue;
+    }
+
+    // Broken-lamp flicker leading up to the settle point.
+    let t = 0;
+    let lit = (finalState === "off");   // exit starts lit, enter starts dark
+    while (t < settleAt) {
+      const willLight = !lit;
+      const stepDur = willLight
+        ? 12 + Math.floor(Math.random() * 50)
+        : 40 + Math.floor(Math.random() * 180);
+      timers.push(setTimeout(() => {
+        if (willLight) { w.classList.add("lit"); poemTick(0.53); }
+        else w.classList.remove("lit");
+      }, t));
+      lit = willLight;
+      t += stepDur;
+    }
+    timers.push(setTimeout(() => {
+      if (finalState === "on") { w.classList.add("lit"); poemTick(); }
+      else w.classList.remove("lit");
+    }, settleAt));
+  }
+  return timers;
+}
 
 function startPoemBackground() {
   if (poemBgController) return;
   const root = document.getElementById("poem-bg");
   if (!root) return;
+  poemTickEnabled = true;
   root.style.display = "flex";
   const block = document.createElement("div");
   block.className = "poem";
 
-  for (const line of BG_POEM_LINES) {
+  const allWordSpans = [];
+  for (const line of poemLinesForViewport()) {
     const lineEl = document.createElement("div");
     lineEl.className = "pl";
     const tokens = line.split(/(\s+)/);
@@ -2326,11 +2557,15 @@ function startPoemBackground() {
         span.className = "pw";
         span.textContent = tok;
         lineEl.appendChild(span);
+        allWordSpans.push(span);
       }
     }
     block.appendChild(lineEl);
   }
   root.appendChild(block);
+
+  // Kick off the broken-lamp flicker so every word ends lit within 3s.
+  let activeTimers = flickerWords(allWordSpans, "on");
 
   // Binary-search the biggest font-size whose six-line block fits the
   // viewport in both dimensions, then scaleY the block so any leftover
@@ -2373,12 +2608,30 @@ function startPoemBackground() {
   }
   window.addEventListener("resize", fit);
 
+  // Capture per-instance state so a fast re-press doesn't let one
+  // controller stomp the next one's DOM.
+  const myBlock = block;
+  const myRoot = root;
+  let removeTimer = null;
   poemBgController = {
+    refit: fit,
     stop() {
       window.removeEventListener("resize", fit);
-      block.remove();
-      root.style.display = "none";
+      // Cancel any pending enter flicker timers from this instance.
+      for (const t of activeTimers) clearTimeout(t);
+      poemTickEnabled = false;
+      activeTimers = flickerWords(allWordSpans, "off");
+      // Clear THIS controller now, but keep the DOM around through the
+      // exit flicker. A user can re-press while we're still fading; the
+      // new controller will get its own block + root and we make sure
+      // our late teardown only touches OUR myBlock/myRoot.
       poemBgController = null;
+      removeTimer = setTimeout(() => {
+        // Don't blank out the root if a new controller already
+        // re-claimed it (root is the shared #poem-bg element).
+        if (myBlock.isConnected) myBlock.remove();
+        if (!poemBgController) myRoot.style.display = "none";
+      }, POEM_FLICKER_OUT_MS + 50);
     },
   };
 }
@@ -2424,6 +2677,10 @@ function startStats() {
 // signals readiness via window.__STATIC_READY for a headless capture.
 async function renderStaticPoster({ captions, semantic }) {
   window.__staticMode = true;
+  // Static-render baseline: pin --scale so element sizes don't depend
+  // on the small page viewport. 1.3 keeps the previous-poster sizing
+  // but bumps every element ~30% bigger without changing density.
+  document.documentElement.style.setProperty("--scale", "1.56");
   document.getElementById("start").style.display = "none";
   document.getElementById("stats")?.remove();
   document.getElementById("openControlsBtn")?.remove();
@@ -2620,11 +2877,11 @@ async function renderStaticPoster({ captions, semantic }) {
     node.style.fill = "";
   }
   document.querySelectorAll("#wires-bg path.semantic").forEach(p => {
-    unescapeUrlFill(p, "#ff5e00");
+    unescapeUrlFill(p, "#fff200");
     p.setAttribute("stroke", "none");
   });
   document.querySelectorAll("#wires-bg rect.semantic-box").forEach(b => {
-    unescapeUrlFill(b, "#ff5e00");
+    unescapeUrlFill(b, "#fff200");
     b.setAttribute("stroke", "none");
   });
 
@@ -2656,7 +2913,22 @@ async function renderStaticPoster({ captions, semantic }) {
     const poemRoot = document.getElementById("poem-bg");
     poemRoot.style.mixBlendMode = "normal";
     if (typeof startPoemBackground === "function") startPoemBackground();
-    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    // Force every word lit before measuring -- otherwise the .pw spans
+    // have opacity:0 (display still inline-block, but the glyph paint is
+    // invisible) and fit() may pick a transform that leaves the lower
+    // third of the layer empty.
+    poemRoot.querySelectorAll(".pw").forEach(w => w.classList.add("lit"));
+    // Wait for Bebas Neue to finish loading so fit measures the real
+    // face, not the Impact fallback.
+    if (document.fonts && document.fonts.ready) {
+      try { await document.fonts.ready; } catch (e) {}
+    }
+    await new Promise(r => setTimeout(r, 100));
+    // Re-fit now that the font + lit state are both in place.
+    if (poemBgController && typeof poemBgController.refit === "function") {
+      poemBgController.refit();
+    }
+    await new Promise(r => setTimeout(r, 100));
   };
 
   window.__STATIC_READY = true;
@@ -2722,10 +2994,28 @@ function freezeAllWires() {
 }
 
 async function main() {
+  // Compute viewport scale once on load (no live resize hook -- a user
+  // hitting the canvas at 1512px stays at scale=1 even if they grow
+  // the window). 14" MacBook (1512px wide) is the baseline. Portrait
+  // viewports (aspect < 0.9) get an extra multiplier so reels-style
+  // (1080x1920) windows don't end up with thumbnail-sized glyphs.
+  const VW = window.innerWidth, VH = window.innerHeight;
+  const aspectRaw = VW / Math.max(1, VH);
+  const portraitBoost = aspectRaw < 0.9 ? 1.95 : 1;
+  const SCALE = Math.max(0.65, Math.min(2.2, (VW / 1512) * portraitBoost));
+  document.documentElement.style.setProperty("--scale", SCALE.toFixed(3));
+  SAFE_MARGIN_PX = Math.round(16 * SCALE);
+  GRID_CELL_W = Math.round(64 * SCALE);
+  GRID_CELL_H = Math.round(32 * SCALE);
+  // Sync the faint dot-grid background to the new cell size.
+  const gx = GRID_CELL_W / 2, gy = GRID_CELL_H / 2;
+  document.body.style.backgroundSize = `${gx * 2}px ${gy * 2}px`;
+  document.body.style.backgroundPosition = `${SAFE_MARGIN_PX}px ${SAFE_MARGIN_PX}px`;
+
   const res = await fetch("clips.json");
   clips = await res.json();
   buildTierPools();
-  console.log("loaded", clips.length, "clips");
+  console.log("loaded", clips.length, "clips", "scale", SCALE.toFixed(3));
 
   // Static-render mode for poster export. Activated by URL params:
   //   ?static=1&captions=120&semantic=30
@@ -2768,6 +3058,7 @@ async function main() {
       frozen,
       muted,
       poemOn: !!poemBgController,
+      zoomed: document.body.classList.contains("zoomed"),
     });
   }
 
@@ -2778,21 +3069,42 @@ async function main() {
     } else {
       document.body.dataset.focusCat = cat;
     }
-    // Re-trigger the focusFlash animation by reaching into the WAAPI:
-    // cancel anything already running on body's #stage / #wires and let
-    // CSS re-attach a fresh animation when the class flips back on.
-    // This avoids the `void offsetWidth` reflow trick, which on a
-    // multi-thousand-node DOM forced a synchronous layout pass and
-    // visibly stuttered the click.
+    // Spread the per-element opacity transitions over ~700ms via a
+    // random delay so the browser doesn't try to re-composite thousands
+    // of caption/wire/box nodes in the same frame. Cheaper than a single
+    // big repaint and reads as a "wave" through the scene.
+    const STAGGER_MS = 700;
+    const caps = document.getElementsByClassName("caption");
+    for (let i = 0; i < caps.length; i++) {
+      caps[i].style.transitionDelay = (Math.random() * STAGGER_MS) + "ms";
+    }
+    // Wire layer children also stagger so the wave includes the box +
+    // path opacity changes. setProperty on style is cheaper than
+    // setAttribute and SVG does honour CSS transitions.
+    const svg   = document.getElementById("wires");
+    const svgBg = document.getElementById("wires-bg");
+    if (svg) {
+      const kids = svg.children;
+      for (let i = 0; i < kids.length; i++) {
+        kids[i].style.transitionDelay = (Math.random() * STAGGER_MS) + "ms";
+      }
+    }
+    if (svgBg) {
+      const kids = svgBg.children;
+      for (let i = 0; i < kids.length; i++) {
+        kids[i].style.transitionDelay = (Math.random() * STAGGER_MS) + "ms";
+      }
+    }
+
     for (const el of [document.getElementById("stage"), document.getElementById("wires")]) {
       if (!el) continue;
       for (const a of el.getAnimations({ subtree: false })) a.cancel();
     }
     document.body.classList.remove("focus-flash");
     document.body.classList.add("focus-flash");
-    // Defer the gloss-label rebuild past the next frame so the focus
-    // animation gets a clean paint before we walk every visible word.
-    requestAnimationFrame(() => requestAnimationFrame(refreshGlossLabels));
+    // Defer the gloss-label rebuild past the focus wave so the user
+    // sees the smooth transition before any layout pass.
+    setTimeout(refreshGlossLabels, 800);
     broadcastState();
   }
 
@@ -2811,6 +3123,15 @@ async function main() {
     broadcastState();
   }
 
+  function toggleZoom() {
+    // Zoom is purely a CSS transform; layout (and therefore caption
+    // placement, audio, wire ticks) stays unaffected. We don't freeze
+    // anything here -- the rest of the piece keeps running while the
+    // GPU composites the scale transition on its own thread.
+    document.body.classList.toggle("zoomed");
+    broadcastState();
+  }
+
   function toggleMute() {
     muted = !muted;
     // Mute every active clip-driven <audio>.
@@ -2819,7 +3140,7 @@ async function main() {
     }
     // Mute the WebAudio piano ambient too.
     if (typeof pianoGain !== "undefined" && pianoGain) {
-      try { pianoGain.gain.value = muted ? 0 : 0.7; } catch (e) {}
+      try { pianoGain.gain.value = muted ? 0 : TUNING_VOLUME; } catch (e) {}
     }
     broadcastState();
   }
@@ -2831,6 +3152,7 @@ async function main() {
     else if (m.type === "toggle-freeze") toggleFreeze();
     else if (m.type === "toggle-poem")   togglePoem();
     else if (m.type === "toggle-mute")   toggleMute();
+    else if (m.type === "toggle-zoom")   toggleZoom();
     else if (m.type === "request-state") broadcastState();
     else if (m.type === "user-text") handleUserText(m.text);
   });
@@ -2875,6 +3197,14 @@ async function main() {
     cap.setAttribute("lang", lang);
     if (Math.random() < 0.5) cap.setAttribute("data-fontstyle", "serif");
 
+    // Opening bracket -- tagged as .ch so the standard slide animation
+    // picks it up. By being the first child it arrives one stagger step
+    // ahead of any glyph.
+    const openB = document.createElement("span");
+    openB.className = "ch user-bracket";
+    openB.textContent = "[";
+    cap.appendChild(openB);
+
     // Greedy match each token's surface in the original text so we keep
     // the user's spacing/punctuation. Anything between tokens is gap text.
     let cursor = 0;
@@ -2908,6 +3238,12 @@ async function main() {
       gap.textContent = text.slice(cursor);
       cap.appendChild(gap);
     }
+    // Closing bracket -- last child so it slides in last and slides
+    // out last (the off-left job iterates left-to-right).
+    const closeB = document.createElement("span");
+    closeB.className = "ch user-bracket";
+    closeB.textContent = "]";
+    cap.appendChild(closeB);
 
     placeCaption(cap);
     const speechMs = Math.max(1200, text.length * 60);
@@ -2918,7 +3254,7 @@ async function main() {
   // Trigger that opens the dedicated controls window.
   document.getElementById("openControlsBtn").addEventListener("click", () => {
     const w = window.open("control.html", "ttn-controls",
-      "width=280,height=500,resizable=no,scrollbars=no");
+      "width=280,height=540,resizable=no,scrollbars=no");
     if (w) {
       // Push current state shortly after the window registers its listener.
       setTimeout(broadcastState, 200);
