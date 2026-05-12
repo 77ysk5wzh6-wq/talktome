@@ -11,12 +11,16 @@ web/korean_audio/
 web/chinese_audio/
 
 # Extracted clip folders (regenerable via the *_clips.py / download_*.py scripts).
-web/audio/
+# web/audio/ holds the 1215 clips actually used by the live piece; commit
+# it so GitHub Pages can serve the audio. The per-language *_clips/ dirs
+# stay ignored -- they're intermediate build output.
 web/audio_rejected/
 web/english_audio/
 web/chinese_audio_clips/
 web/japanese_audio_clips/
 web/korean_audio_clips/
+web/arabic_audio_clips/
+web/norwegian_audio_clips/
 
 # Misc images dropped into the working dir
 web/*.jpg

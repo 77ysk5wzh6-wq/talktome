@@ -55,15 +55,76 @@
   }
   /* Tiny trigger that opens the controls window. Lives in the same
      position the legend used to occupy. */
+  /* Tiny "controls" trigger pinned just below the in-page panel; click
+     it to pop the buttons out into a separate window. While the
+     external window is open we hide the in-page panel so the buttons
+     don't live in two places at once. */
   #openControlsBtn {
-    position: fixed; top: 16px; left: 16px;
-    z-index: 20; user-select: none;
-    background: transparent; border: 1px solid #aaa;
-    color: #444; padding: 3px 8px; border-radius: 3px;
-    font: 10px/1 monospace; cursor: pointer;
-    transition: background-color 200ms ease, border-color 200ms ease;
+    position: fixed; top: 10px; right: 195px;
+    z-index: 21; user-select: none;
+    background: transparent; border: 1px solid #bbb;
+    color: #666; padding: 2px 6px; border-radius: 2px;
+    font: 8px/1 monospace; letter-spacing: 0.05em; cursor: pointer;
+    opacity: 0.75;
+    transition: opacity 200ms ease, border-color 200ms ease;
   }
-  #openControlsBtn:hover { background-color: rgba(0,0,0,0.04); border-color: #555; }
+  #openControlsBtn:hover { opacity: 1; border-color: #555; }
+  body.controls-external #controls { display: none; }
+  /* In-page control panel: visible by default; hidden while the
+     external window holds the controls. */
+  #controls {
+    position: fixed; top: 10px; right: 10px;
+    z-index: 20; user-select: none;
+    font: 9px/1.4 monospace; color: #555;
+    background: rgba(255,255,255,0.7);
+    border: 1px solid #ccc; border-radius: 3px;
+    padding: 6px;
+    width: 175px;
+  }
+  #closeControlsBtn { display: none; }
+  #controls button.row {
+    all: unset;
+    display: flex; align-items: center; gap: 6px;
+    width: 100%; box-sizing: border-box;
+    margin-bottom: 2px; padding: 2px 4px;
+    cursor: pointer; border-radius: 2px;
+    transition: background-color 150ms ease;
+  }
+  #controls button.row:hover  { background-color: rgba(0,0,0,0.05); }
+  #controls button.row.active { background-color: rgba(0,0,0,0.1); }
+  #controls .swatch {
+    display: inline-block; width: 14px; height: 8px;
+    border: 1px solid currentColor;
+    flex-shrink: 0;
+  }
+  #controls .swatch.ent  { background: #ff00ff; color: #ff00ff; }
+  #controls .swatch.act  { background: #00e5ff; color: #00e5ff; border-radius: 3px; }
+  #controls .swatch.qua  { background: #4cd44c; color: #4cd44c; border-radius: 50%; }
+  #controls .swatch.rel  { background: transparent; color: #8a8a8a; border-style: dashed; }
+  #controls .swatch.sem  { background: #fff200; color: #fff200; border-style: dashed; }
+  #controls .swatch.freeze { background: transparent; color: #444; border-color: #444; }
+  #controls .swatch.poem   { background: #000; color: #000; border-color: #000; }
+  #controls .swatch.mute   { background: #888; color: #888; border-color: #888; }
+  #controls .swatch.zoom   { background: transparent; color: #444; border-color: #444; border-style: dotted; }
+  #controls .label { color: #333; font-weight: 600; }
+  #controls .upos  { color: #999; font-size: 7px; margin-left: auto; }
+  #controls hr     { border: none; border-top: 1px solid #ddd; margin: 4px 0; }
+  #controls #userForm { display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
+  #controls #userText {
+    border: 1px solid #aaa; background: #fff; color: #111;
+    font: 9px/1.3 monospace; padding: 4px 6px; border-radius: 2px;
+    outline: none; width: 100%; box-sizing: border-box;
+  }
+  #controls #userText:focus { border-color: #555; }
+  #controls #sendBtn {
+    all: unset; text-align: center; cursor: pointer;
+    padding: 3px 4px; border: 1px solid #aaa; border-radius: 2px;
+    color: #333; font: 600 8px/1 monospace; letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  #controls #sendBtn:hover { border-color: #555; background: rgba(0,0,0,0.04); }
+  #controls #sendBtn:disabled { opacity: 0.5; cursor: wait; }
+  #controls #userStatus { color: #888; font-size: 7px; min-height: 10px; }
   #wires {
     position: fixed;
     left: 0; top: 0;
@@ -417,6 +478,61 @@
      Click this small trigger to open it; the two windows talk over a
      BroadcastChannel so the canvas stays uncluttered for the audience. -->
 <button id="openControlsBtn">controls</button>
+<div id="controls">
+  <button id="closeControlsBtn" title="close">×</button>
+  <button class="row" data-cat="ENTITY">
+    <span class="swatch ent"></span>
+    <span class="label">ENTITY</span>
+    <span class="upos">noun · pron</span>
+  </button>
+  <button class="row" data-cat="ACTION">
+    <span class="swatch act"></span>
+    <span class="label">ACTION</span>
+    <span class="upos">verb · aux</span>
+  </button>
+  <button class="row" data-cat="QUALITY">
+    <span class="swatch qua"></span>
+    <span class="label">QUALITY</span>
+    <span class="upos">adj · adv</span>
+  </button>
+  <button class="row" data-cat="RELATION">
+    <span class="swatch rel"></span>
+    <span class="label">RELATION</span>
+    <span class="upos">adp · conj · det</span>
+  </button>
+  <button class="row" data-cat="SEMANTIC">
+    <span class="swatch sem"></span>
+    <span class="label">SEMANTIC</span>
+    <span class="upos">cross-lang</span>
+  </button>
+  <hr>
+  <button class="row" id="freezeBtn">
+    <span class="swatch freeze"></span>
+    <span class="label">FREEZE</span>
+    <span class="upos">snapshot</span>
+  </button>
+  <button class="row" id="poemBtn">
+    <span class="swatch poem"></span>
+    <span class="label">POEM</span>
+    <span class="upos">background</span>
+  </button>
+  <button class="row" id="muteBtn">
+    <span class="swatch mute"></span>
+    <span class="label">MUTE</span>
+    <span class="upos">all audio</span>
+  </button>
+  <button class="row" id="zoomBtn">
+    <span class="swatch zoom"></span>
+    <span class="label">ZOOM</span>
+    <span class="upos">5×</span>
+  </button>
+  <hr>
+  <form id="userForm" autocomplete="off">
+    <input type="text" id="userText" maxlength="60" placeholder="say something… (en/ko)">
+    <button type="submit" id="sendBtn">send</button>
+    <div id="userStatus"></div>
+  </form>
+</div>
 <div id="stats"></div>
 <div id="start"><button id="startBtn">시작</button></div>
 <script>
@@ -1914,10 +2030,21 @@ function startWireLoop() {
       const start = a[sideA], end = b[sideB];
       const key = pairKey(cat, a, b);
       const jog = hashStr(key) % 5;
-      const d = builders[cat](a, b, jog, start, end, sideA, sideB);
+      // d-string memoization. The path string depends only on the two
+      // anchor points (which never move once the words settle) plus
+      // the chosen sides and jog. If the existing wire record already
+      // has a matching `dKey`, skip the (relatively expensive) string
+      // build entirely.
+      const dKey = sideA + sideB + "|" + start.x + "," + start.y + "|" + end.x + "," + end.y + "|" + jog;
+      let rec = wires.get(key);
+      let d;
+      if (rec && rec.dKey === dKey) {
+        d = rec.d;
+      } else {
+        d = builders[cat](a, b, jog, start, end, sideA, sideB);
+      }
       aliveKeys.add(key);
 
-      let rec = wires.get(key);
       if (!rec) {
         const grad = makeGradient(cat);
         const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -1927,7 +2054,7 @@ function startWireLoop() {
         svg.appendChild(path);
         rec = {
           path, cat, grad, phase: "enter", phaseStartedAt: now,
-          d, length: 0, lastOffset: -1, gradSig: "",
+          d, dKey, length: 0, lastOffset: -1, gradSig: "",
         };
         rec.length = path.getTotalLength() || 1;
         path.style.strokeDasharray = rec.length;
@@ -1935,9 +2062,10 @@ function startWireLoop() {
         rec.lastOffset = rec.length;
         wires.set(key, rec);
       } else if (rec.phase === "live") {
-        if (rec.d !== d) {
+        if (rec.dKey !== dKey) {
           rec.path.setAttribute("d", d);
           rec.d = d;
+          rec.dKey = dKey;
           rec.length = rec.path.getTotalLength() || rec.length;
           // Live state: replace single-dash with the CSS-defined pattern
           // (or full-line for non-dashed categories) by clearing the inline
@@ -3041,17 +3169,27 @@ async function main() {
     });
   });
 
-  // Legend buttons toggle category isolation. The freeze button is handled
-  // separately below.
-  // === Cross-window control bus ===
-  // The interactive UI now lives in a separate window (web/control.html).
-  // We talk to it via BroadcastChannel: it sends action messages, we
-  // broadcast state back so it can reflect the current focus / freeze /
-  // poem flags. Every action below keeps the same behaviour the in-page
-  // buttons used to trigger.
+  // === Control panel (in-page) + optional external window ===
+  // Buttons live in the main page's #controls panel by default. The
+  // small "controls" trigger pops them out into a separate window;
+  // when the external window is open, the in-page panel hides. Both
+  // surfaces share state via a BroadcastChannel.
   const controlBus = new BroadcastChannel("ttn-controls");
+  let externalWin = null;
+
+  function syncInPageControls() {
+    const cat = document.body.dataset.focusCat || null;
+    for (const b of document.querySelectorAll("#controls button.row[data-cat]")) {
+      b.classList.toggle("active", b.dataset.cat === cat);
+    }
+    document.getElementById("freezeBtn")?.classList.toggle("active", !!frozen);
+    document.getElementById("poemBtn")  ?.classList.toggle("active", !!poemBgController);
+    document.getElementById("muteBtn")  ?.classList.toggle("active", !!muted);
+    document.getElementById("zoomBtn")  ?.classList.toggle("active", document.body.classList.contains("zoomed"));
+  }
 
   function broadcastState() {
+    syncInPageControls();
     controlBus.postMessage({
       type: "state",
       focusCat: document.body.dataset.focusCat || null,
@@ -3161,7 +3299,7 @@ async function main() {
     const text = (rawText || "").slice(0, 60).trim();
     if (!text) {
       controlBus.postMessage({ type: "user-text-result", ok: false, error: "empty" });
-      return;
+      return null;
     }
     let result;
     try {
@@ -3174,14 +3312,12 @@ async function main() {
       result = await res.json();
     } catch (e) {
       controlBus.postMessage({ type: "user-text-result", ok: false, error: String(e.message || e) });
-      return;
+      return null;
     }
     showUserCaption(text, result);
-    controlBus.postMessage({
-      type: "user-text-result",
-      ok: true,
-      tokens: result.tokens?.length || 0,
-    });
+    const n = result.tokens?.length || 0;
+    controlBus.postMessage({ type: "user-text-result", ok: true, tokens: n });
+    return n;
   }
 
   // Build a caption out of the user's text + POS tags and run it through
@@ -3251,15 +3387,65 @@ async function main() {
     setTimeout(() => slideOutChars(cap, 800), speechMs + 4000);
   }
 
-  // Trigger that opens the dedicated controls window.
+  // In-page control wiring -- each button posts to the same bus the
+  // external window uses, keeping behaviour unified.
+  for (const b of document.querySelectorAll("#controls button.row[data-cat]")) {
+    b.addEventListener("click", () => setFocusCat(b.dataset.cat));
+  }
+  document.getElementById("freezeBtn")?.addEventListener("click", toggleFreeze);
+  document.getElementById("poemBtn")  ?.addEventListener("click", togglePoem);
+  document.getElementById("muteBtn")  ?.addEventListener("click", toggleMute);
+  document.getElementById("zoomBtn")  ?.addEventListener("click", toggleZoom);
+
+  // User-text form (in-page).
+  const userForm = document.getElementById("userForm");
+  const userText = document.getElementById("userText");
+  const sendBtn  = document.getElementById("sendBtn");
+  const userStatus = document.getElementById("userStatus");
+  userForm?.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const text = userText.value.trim();
+    if (!text) return;
+    sendBtn.disabled = true;
+    userStatus.textContent = "tagging…";
+    handleUserText(text).then((n) => {
+      sendBtn.disabled = false;
+      if (n != null) {
+        userStatus.textContent = `shown (${n} tokens)`;
+        userText.value = "";
+      } else {
+        userStatus.textContent = "error";
+      }
+    });
+  });
+
+  // Trigger that pops the controls out into a separate window. While
+  // the external window is open, the in-page panel hides.
   document.getElementById("openControlsBtn").addEventListener("click", () => {
-    const w = window.open("control.html", "ttn-controls",
+    externalWin = window.open("control.html", "ttn-controls",
       "width=280,height=540,resizable=no,scrollbars=no");
-    if (w) {
-      // Push current state shortly after the window registers its listener.
+    if (externalWin) {
+      document.body.classList.add("controls-external");
+      // Push current state shortly after the new window registers.
       setTimeout(broadcastState, 200);
+      // Watch for the window being closed so we can restore the in-page panel.
+      const tick = setInterval(() => {
+        if (externalWin.closed) {
+          clearInterval(tick);
+          document.body.classList.remove("controls-external");
+          externalWin = null;
+        }
+      }, 500);
     }
   });
+  // Close (×) the panel/trigger entirely from the canvas (it still
+  // re-appears via the small trigger by toggling controls-open).
+  document.getElementById("closeControlsBtn")?.addEventListener("click", () => {
+    document.body.classList.remove("controls-open");
+  });
+
+  // Initial sync.
+  syncInPageControls();
 }
 
 // Korean gloss boxes next to non-Korean tagged words. Active whenever a

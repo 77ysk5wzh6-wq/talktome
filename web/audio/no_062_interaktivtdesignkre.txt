@@ -1,0 +1,1 @@
+interaktivt design krever at komponenter i et prosjekt har en forbindelse men at de også gir mening hver for seg
