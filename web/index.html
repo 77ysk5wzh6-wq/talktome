@@ -14,6 +14,44 @@
        baseline). Every px-tuned size below multiplies by it, so wider
        displays scale up and narrow / portrait phones scale down. */
     --scale: 1;
+    /* Category palette (Brita 131-inspired by default). The toggle button
+       in #controls swaps to the legacy neon set by adding .palette-legacy
+       to <body>. */
+    --c-entity:   #1e7158;
+    --c-action:   #4cb6df;
+    --c-quality:  #e75450;
+    --c-semantic: #ccff00;
+    /* Per-category *active* colour. By default each role's active
+       colour equals its full palette hex. Adding .focus-<CAT> to <body>
+       swaps every other role's active colour to a faded grey so only
+       the focused category's boxes / wires stay coloured. Text stays
+       black throughout -- we never touch caption colour. */
+    --c-entity-active:   var(--c-entity);
+    --c-action-active:   var(--c-action);
+    --c-quality-active:  var(--c-quality);
+    --c-relation-active: #8a8a8a;
+    --c-semantic-active: var(--c-semantic);
+  }
+  /* Dim everyone except the focused role. */
+  /* Per-role word text colour. Default = inherit (caption's own colour).
+     During focus mode the off-roles swap to the same dim grey as the
+     boxes, so the unselected captions read as a faded wash. */
+  body { --txt-entity: inherit; --txt-action: inherit; --txt-quality: inherit; --txt-relation: inherit; --txt-other: inherit; }
+  body.focus-ENTITY   { --c-action-active: #d4d4d4; --c-quality-active: #d4d4d4; --c-relation-active: #d4d4d4; --c-semantic-active: #d4d4d4;
+                        --txt-action: #d4d4d4; --txt-quality: #d4d4d4; --txt-relation: #d4d4d4; --txt-other: #d4d4d4; }
+  body.focus-ACTION   { --c-entity-active: #d4d4d4; --c-quality-active: #d4d4d4; --c-relation-active: #d4d4d4; --c-semantic-active: #d4d4d4;
+                        --txt-entity: #d4d4d4; --txt-quality: #d4d4d4; --txt-relation: #d4d4d4; --txt-other: #d4d4d4; }
+  body.focus-QUALITY  { --c-entity-active: #d4d4d4; --c-action-active:  #d4d4d4; --c-relation-active: #d4d4d4; --c-semantic-active: #d4d4d4;
+                        --txt-entity: #d4d4d4; --txt-action:  #d4d4d4; --txt-relation: #d4d4d4; --txt-other: #d4d4d4; }
+  body.focus-RELATION { --c-entity-active: #d4d4d4; --c-action-active:  #d4d4d4; --c-quality-active:  #d4d4d4; --c-semantic-active: #d4d4d4;
+                        --txt-entity: #d4d4d4; --txt-action:  #d4d4d4; --txt-quality:  #d4d4d4; --txt-other: #d4d4d4; }
+  body.focus-SEMANTIC { --c-entity-active: #d4d4d4; --c-action-active:  #d4d4d4; --c-quality-active:  #d4d4d4; --c-relation-active: #d4d4d4; }
+
+  body.palette-legacy {
+    --c-entity:   #ff00ff;
+    --c-action:   #00e5ff;
+    --c-quality:  #4cd44c;
+    --c-semantic: #fff200;
   }
   html, body {
     margin: 0; padding: 0; height: 100%;
@@ -24,13 +62,60 @@
     /* Faint dot grid that lines up with the caption-placement grid (64x32px).
        Each cell origin gets a 1px dot at ~7% opacity -- visible only when the
        eye relaxes, gone when reading captions. */
-    background-color: #ffffff;
-    /* Hairline grid: faint orange. */
+    /* Hairline orange dot grid; no solid background so the animated
+       #bgfx layer (below) shows through. */
+    background-color: transparent;
     background-image:
       linear-gradient(to right,  rgba(255, 140, 26, 0.10) 0.5px, transparent 0.5px),
       linear-gradient(to bottom, rgba(255, 140, 26, 0.10) 0.5px, transparent 0.5px);
     background-size: 32px 16px;
-    background-position: 16px 16px;   /* match SAFE_MARGIN_PX */
+    background-position: 16px 16px;
+    background-repeat: repeat;
+    background-attachment: fixed;
+  }
+  /* Top-most grain overlay: a single high-res Texture.jpg stretched
+     edge-to-edge over the viewport, composited via mix-blend-mode:
+     screen. Because the texture is near-black with white scratches,
+     screen lets only the bright dust/scratches lift onto the scene
+     while the dark majority stays invisible. Pointer events pass
+     through so it doesn't block clicks on controls. */
+  #grainfx {
+    position: fixed; inset: 0;
+    z-index: 9999; pointer-events: none;
+    background: url("Texture.jpg") center / 100% 100% no-repeat;
+    mix-blend-mode: screen;
+    transform-origin: 50% 50%;
+    /* Match #zoom-wrap so the grain zooms in lock-step with captions. */
+    transition: transform 11000ms cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: transform;
+    backface-visibility: hidden;
+  }
+  body.zoomed #grainfx { transform: scale(5); }
+  /* Animated colour field: five big radial blobs that drift like Perlin
+     noise on a slow z-axis. CSS variables --bx0..--by3 are updated by JS
+     (rAF + four phase-offset sines) so every blob takes its own meander.
+     Heavy gaussian-blur via large `transparent` falloff per gradient;
+     resolution is screen-cheap because the layer is sampled once and
+     promoted to its own compositor layer (will-change). */
+  #bgfx {
+    position: fixed; inset: 0;
+    z-index: 0; pointer-events: none;
+    background-color: #fafbfd;
+    /* Seven vertical curtains lifted yet another tonal step -- now an
+       almost-white field with only the faintest lavender wash. */
+    background-image:
+      radial-gradient(20vw 200vh at var(--bx0) 50%, #f5f6fb 0%, rgba(245,246,251,0) 70%),
+      radial-gradient(22vw 220vh at var(--bx1) 50%, #ffffff 0%, rgba(255,255,255,0) 72%),
+      radial-gradient(18vw 200vh at var(--bx2) 50%, #ebeef7 0%, rgba(235,238,247,0) 70%),
+      radial-gradient(28vw 260vh at var(--bx3) 50%, #e4e8f5 0%, rgba(228,232,245,0) 80%),
+      radial-gradient(22vw 200vh at var(--bx4) 50%, #f0f3fb 0%, rgba(240,243,251,0) 70%),
+      radial-gradient(24vw 220vh at var(--bx5) 50%, #ffffff 0%, rgba(255,255,255,0) 72%),
+      radial-gradient(22vw 200vh at var(--bx6) 50%, #f8f9fc 0%, rgba(248,249,252,0) 70%),
+      linear-gradient(180deg, #fafbfd 0%, #fcfcfe 100%);
+    --bx0: 6%;  --bx1: 22%; --bx2: 36%; --bx3: 48%;
+    --bx4: 62%; --bx5: 78%; --bx6: 94%;
+    will-change: background-position;
+    backface-visibility: hidden;
   }
   /* Film-grain overlay: a single tiled SVG noise image composited via blend mode.
      The SVG is generated once and cached by the browser, so the GPU compositor
@@ -48,7 +133,7 @@
   #stats {
     position: fixed; bottom: 8px; right: 8px;
     font: 11px/1.4 monospace; color: #888;
-    background: rgba(255,255,255,0.85);
+    background: rgba(255,255,255,0.05);
     padding: 4px 8px; border-radius: 4px;
     z-index: 20; pointer-events: none;
     white-space: pre;
@@ -60,7 +145,7 @@
      external window is open we hide the in-page panel so the buttons
      don't live in two places at once. */
   #openControlsBtn {
-    position: fixed; top: 10px; right: 195px;
+    position: fixed; top: 10px; left: 10px;
     z-index: 21; user-select: none;
     background: transparent; border: 1px solid #bbb;
     color: #666; padding: 2px 6px; border-radius: 2px;
@@ -76,8 +161,8 @@
     position: fixed; top: 10px; right: 10px;
     z-index: 20; user-select: none;
     font: 9px/1.4 monospace; color: #555;
-    background: rgba(255,255,255,0.7);
-    border: 1px solid #ccc; border-radius: 3px;
+    background: rgba(255,255,255,0.3);
+    border: 1px solid rgba(204,204,204,0.45); border-radius: 3px;
     padding: 6px;
     width: 175px;
   }
@@ -97,15 +182,19 @@
     border: 1px solid currentColor;
     flex-shrink: 0;
   }
-  #controls .swatch.ent  { background: #ff00ff; color: #ff00ff; }
-  #controls .swatch.act  { background: #00e5ff; color: #00e5ff; border-radius: 3px; }
-  #controls .swatch.qua  { background: #4cd44c; color: #4cd44c; border-radius: 50%; }
+  #controls .swatch.ent  { background: var(--c-entity);  color: var(--c-entity); }
+  #controls .swatch.act  { background: var(--c-action);  color: var(--c-action);  border-radius: 3px; }
+  #controls .swatch.qua  { background: var(--c-quality); color: var(--c-quality); border-radius: 50%; }
   #controls .swatch.rel  { background: transparent; color: #8a8a8a; border-style: dashed; }
-  #controls .swatch.sem  { background: #fff200; color: #fff200; border-style: dashed; }
+  #controls .swatch.sem  { background: var(--c-semantic); color: var(--c-semantic); border-style: dashed; }
   #controls .swatch.freeze { background: transparent; color: #444; border-color: #444; }
   #controls .swatch.poem   { background: #000; color: #000; border-color: #000; }
   #controls .swatch.mute   { background: #888; color: #888; border-color: #888; }
   #controls .swatch.zoom   { background: transparent; color: #444; border-color: #444; border-style: dotted; }
+  #controls .swatch.pal    {
+    background: linear-gradient(90deg, var(--c-entity) 0 25%, var(--c-action) 25% 50%, var(--c-quality) 50% 75%, var(--c-semantic) 75% 100%);
+    color: #444; border-color: #444;
+  }
   #controls .label { color: #333; font-weight: 600; }
   #controls .upos  { color: #999; font-size: 7px; margin-left: auto; }
   #controls hr     { border: none; border-top: 1px solid #ddd; margin: 4px 0; }
@@ -208,40 +297,41 @@
   #poem-bg .poem .pw.lit { opacity: 1; }
   #wires path {
     fill: none;
-    stroke-width: calc(0.22px * var(--scale));
+    stroke-width: calc(0.3432px * var(--scale));
     stroke-opacity: 0.85;
   }
   #wires rect, #wires ellipse {
-    stroke-width: calc(0.22px * var(--scale));
+    stroke-width: calc(0.3432px * var(--scale));
     stroke-opacity: 0.85;
     /* Fill is set per-category below; per-element fill-opacity carries the
        size (main/sub/micro) into a transparency level. */
   }
   /* ENTITY (NOUN/PROPN/PRON): hard right-angle traces, crisp edges, magenta */
-  #wires path.entity { stroke: #ff00ff; shape-rendering: crispEdges; }
-  #wires rect.entity-box { stroke: #ff00ff; fill: #ff00ff; }
-  #wires circle.entity-port { stroke: #ff00ff; fill: #ff00ff; }
+  #wires path.entity { stroke: var(--c-entity-active); shape-rendering: crispEdges; transition: stroke 600ms ease, fill 600ms ease; }
+  #wires rect.entity-box { stroke: var(--c-entity-active); fill: var(--c-entity-active); transition: stroke 600ms ease, fill 600ms ease; }
+  #wires circle.entity-port { stroke: var(--c-entity-active); fill: var(--c-entity-active); transition: stroke 600ms ease, fill 600ms ease; }
   /* ACTION (VERB/AUX): orthogonal but with large rounded corners, cyan */
-  #wires path.action { stroke: #00e5ff; stroke-linejoin: round; stroke-linecap: round; }
-  #wires rect.action-box { stroke: #00e5ff; fill: #00e5ff; }
-  #wires circle.action-port { stroke: #00e5ff; fill: #00e5ff; }
+  #wires path.action { stroke: var(--c-action-active); stroke-linejoin: round; stroke-linecap: round; transition: stroke 600ms ease, fill 600ms ease; }
+  #wires rect.action-box { stroke: var(--c-action-active); fill: var(--c-action-active); transition: stroke 600ms ease, fill 600ms ease; }
+  #wires circle.action-port { stroke: var(--c-action-active); fill: var(--c-action-active); transition: stroke 600ms ease, fill 600ms ease; }
   /* QUALITY (ADJ/ADV): smooth bezier curves, green-lime */
-  #wires path.quality { stroke: #4cd44c; stroke-linecap: round; }
-  #wires ellipse.quality-box { stroke: #4cd44c; fill: #4cd44c; }
-  #wires circle.quality-port { stroke: #4cd44c; fill: #4cd44c; }
+  #wires path.quality { stroke: var(--c-quality-active); stroke-linecap: round; transition: stroke 600ms ease, fill 600ms ease; }
+  #wires ellipse.quality-box { stroke: var(--c-quality-active); fill: var(--c-quality-active); transition: stroke 600ms ease, fill 600ms ease; }
+  #wires circle.quality-port { stroke: var(--c-quality-active); fill: var(--c-quality-active); transition: stroke 600ms ease, fill 600ms ease; }
   /* RELATION (ADP/CCONJ/SCONJ/DET/PART): gray dashed straight wire */
-  #wires path.relation { stroke: #8a8a8a; stroke-dasharray: 4 4; }
-  #wires rect.relation-box { stroke: #8a8a8a; stroke-dasharray: 4 3; fill: #8a8a8a; }
-  #wires circle.relation-port { stroke: #8a8a8a; fill: #8a8a8a; }
+  #wires path.relation { stroke: var(--c-relation-active); stroke-dasharray: 4 4; transition: stroke 600ms ease, fill 600ms ease; }
+  #wires rect.relation-box { stroke: var(--c-relation-active); stroke-dasharray: 4 3; fill: var(--c-relation-active); transition: stroke 600ms ease, fill 600ms ease; }
+  #wires circle.relation-port { stroke: var(--c-relation-active); fill: var(--c-relation-active); transition: stroke 600ms ease, fill 600ms ease; }
   /* SEMANTIC: cross-language meaning links. Filled band connecting the
      nearest edge of two word boxes, so they look fused into one membrane.
      No stroke -- the membrane reads as a clean colour wash. Both #wires
      and #wires-bg need the same rules because the semantic layer lives in
      the bg SVG (so it sits behind caption text). */
   #wires path.semantic, #wires-bg path.semantic {
-    fill: #fff200;
-    fill-opacity: 0.55;
+    fill: var(--c-semantic-active);
+    fill-opacity: 0.85;
     stroke: none;
+    transition: fill 600ms ease;
   }
   #wires rect.semantic-box, #wires-bg rect.semantic-box {
     stroke: none;
@@ -297,41 +387,10 @@
        work on the main thread each frame. */
     will-change: transform;
     backface-visibility: hidden;
+    /* No blend: foreground sits straight on top of the bg. */
+    mix-blend-mode: normal;
   }
   body.zoomed #zoom-wrap { transform: scale(5); }
-  body[data-focus-cat] .caption { opacity: 0.12; }
-  body[data-focus-cat] #wires path,
-  body[data-focus-cat] #wires rect,
-  body[data-focus-cat] #wires ellipse,
-  body[data-focus-cat] #wires circle { opacity: 0.07; }
-  body[data-focus-cat="ENTITY"] .caption:has(.word[data-cat="ENTITY"]),
-  body[data-focus-cat="ENTITY"] #wires path.entity,
-  body[data-focus-cat="ENTITY"] #wires rect.entity-box,
-  body[data-focus-cat="ENTITY"] #wires circle.entity-port { opacity: 1; }
-  body[data-focus-cat="ACTION"] .caption:has(.word[data-cat="ACTION"]),
-  body[data-focus-cat="ACTION"] #wires path.action,
-  body[data-focus-cat="ACTION"] #wires rect.action-box,
-  body[data-focus-cat="ACTION"] #wires circle.action-port { opacity: 1; }
-  body[data-focus-cat="QUALITY"] .caption:has(.word[data-cat="QUALITY"]),
-  body[data-focus-cat="QUALITY"] #wires path.quality,
-  body[data-focus-cat="QUALITY"] #wires ellipse.quality-box,
-  body[data-focus-cat="QUALITY"] #wires circle.quality-port { opacity: 1; }
-  body[data-focus-cat="RELATION"] .caption:has(.word[data-cat="RELATION"]),
-  body[data-focus-cat="RELATION"] #wires path.relation,
-  body[data-focus-cat="RELATION"] #wires rect.relation-box,
-  body[data-focus-cat="RELATION"] #wires circle.relation-port { opacity: 1; }
-  /* SEMANTIC focus: only the cross-language arrow paths stay lit. The
-     captions stay readable so you can see which two words it's linking. */
-  body[data-focus-cat="SEMANTIC"] .caption { opacity: 0.55; }
-  body[data-focus-cat="SEMANTIC"] #wires path.semantic,
-  body[data-focus-cat="SEMANTIC"] #wires-bg path.semantic,
-  body[data-focus-cat="SEMANTIC"] #wires-bg rect.semantic-box,
-  body[data-focus-cat="SEMANTIC"] #wires-bg text.sem-sim { opacity: 1; }
-  /* Generic faded layer also needs to dim the bg SVG when another
-     category is in focus (it isn't covered by the #wires-only rules above). */
-  body[data-focus-cat] #wires-bg path,
-  body[data-focus-cat] #wires-bg rect,
-  body[data-focus-cat] #wires-bg text { opacity: 0.07; }
 
   /* Korean gloss labels. Visible whenever a category focus is active
      (freeze isn't required). Each label slides down + fades in on entry,
@@ -412,18 +471,18 @@
      list makes the opening bracket arrive first and the closing one
      leave last. */
   .caption.huge.user .ch.user-bracket {
-    color: #fff200;
+    color: var(--c-semantic);
     font-weight: 900;
     font-size: 1.4em;
     margin: 0 0.14em;
     /* Layered text-shadows fatten the glyph stroke without changing the
        font, giving the bracket a heavier, almost ultra-bold weight. */
     text-shadow:
-       1px 0 0 #fff200, -1px 0 0 #fff200,
-       0 1px 0 #fff200,  0 -1px 0 #fff200,
-       1px 1px 0 #fff200, -1px -1px 0 #fff200,
-       1px -1px 0 #fff200, -1px 1px 0 #fff200,
-       0 0 2px #fff200;
+       1px 0 0 var(--c-semantic), -1px 0 0 var(--c-semantic),
+       0 1px 0 var(--c-semantic),  0 -1px 0 var(--c-semantic),
+       1px 1px 0 var(--c-semantic), -1px -1px 0 var(--c-semantic),
+       1px -1px 0 var(--c-semantic), -1px 1px 0 var(--c-semantic),
+       0 0 2px var(--c-semantic);
   }
   .caption.main {
     font-size: calc(17px * var(--scale)); font-weight: 600; color: #000; opacity: 0.85;
@@ -462,11 +521,21 @@
   .word {
     display: inline-block;
     white-space: nowrap;
+    transition: color 600ms ease;
   }
+  /* Word text colour follows the role's --txt-* variable. Default
+     inherits the caption's own colour so nothing changes outside
+     focus mode; in focus mode the off-roles drop to a faded grey. */
+  .caption .word[data-cat="ENTITY"]   { color: var(--txt-entity); }
+  .caption .word[data-cat="ACTION"]   { color: var(--txt-action); }
+  .caption .word[data-cat="QUALITY"]  { color: var(--txt-quality); }
+  .caption .word[data-cat="RELATION"] { color: var(--txt-relation); }
+  .caption .word:not([data-cat])      { color: var(--txt-other); }
   .space { display: inline-block; width: 0.3em; }
 </style>
 </head>
 <body>
+<div id="bgfx"></div>
 <div id="poem-bg"></div>
 <div id="zoom-wrap">
   <svg id="wires-bg" xmlns="http://www.w3.org/2000/svg"></svg>
@@ -526,6 +595,11 @@
     <span class="label">ZOOM</span>
     <span class="upos">5×</span>
   </button>
+  <button class="row" id="palBtn">
+    <span class="swatch pal"></span>
+    <span class="label">PALETTE</span>
+    <span class="upos">brita / neon</span>
+  </button>
   <hr>
   <form id="userForm" autocomplete="off">
     <input type="text" id="userText" maxlength="60" placeholder="say something… (en/ko)">
@@ -535,7 +609,17 @@
 </div>
 <div id="stats"></div>
 <div id="start"><button id="startBtn">start</button></div>
+<div id="grainfx"></div>
 <script>
+// Categories whose opacity is controlled by --op-* CSS vars.
+const FOCUS_CATS = ["ENTITY", "ACTION", "QUALITY", "RELATION", "SEMANTIC"];
+function getFocusCat() {
+  for (const c of FOCUS_CATS) {
+    if (document.body.classList.contains("focus-" + c)) return c;
+  }
+  return null;
+}
+
 // Three tiers: main (large + loud), sub (medium), micro (tiny + quiet).
 const TRACK_LAYERS = [
   // 2 huge tracks: dominant top tier (font 2.5x main, takes the old main volume)
@@ -1507,12 +1591,24 @@ function startWireLoop() {
   // Semantic arrowheads are drawn as separate <path> elements next to each
   // line, so SVG markers aren't needed.
   let gradSeq = 0;
-  // Cat -> base stroke colour (matches CSS for path.<cat>).
+  // Cat -> base stroke colour. Pulled from CSS variables on every call
+  // so the runtime palette toggle (#palBtn) re-skins everything.
+  const _cs = () => getComputedStyle(document.documentElement);
+  const _cssv = (n, fb) => (_cs().getPropertyValue(n).trim() || fb);
   const CAT_COLOR = {
-    ENTITY:   "#ff00ff",
-    ACTION:   "#00e5ff",
-    QUALITY:  "#4cd44c",
+    get ENTITY()  { return _cssv("--c-entity",  "#1e7158"); },
+    get ACTION()  { return _cssv("--c-action",  "#4cb6df"); },
+    get QUALITY() { return _cssv("--c-quality", "#e75450"); },
     RELATION: "#8a8a8a",
+  };
+  const SEMANTIC_COLOR = () => _cssv("--c-semantic", "#ccff00");
+  // CSS variable name per cat -- used directly inside SVG <stop> styles
+  // so wire colour follows .focus-<CAT> automatically.
+  const CAT_VAR = {
+    ENTITY:   "var(--c-entity-active)",
+    ACTION:   "var(--c-action-active)",
+    QUALITY:  "var(--c-quality-active)",
+    RELATION: "var(--c-relation-active)",
   };
 
   function makeGradient(cat) {
@@ -1520,13 +1616,18 @@ function startWireLoop() {
     const g = document.createElementNS("http://www.w3.org/2000/svg", "linearGradient");
     g.setAttribute("id", id);
     g.setAttribute("gradientUnits", "userSpaceOnUse");
+    g.setAttribute("data-cat", cat);
+    // Both stops bind to the role's active CSS variable so the body
+    // .focus-<CAT> toggle re-tints every wire in one paint, with no
+    // per-element JS work.
+    const cssVar = CAT_VAR[cat] || "var(--c-entity-active)";
     const s0 = document.createElementNS("http://www.w3.org/2000/svg", "stop");
     s0.setAttribute("offset", "0%");
-    s0.setAttribute("stop-color", CAT_COLOR[cat] || "#ffffff");
+    s0.style.stopColor = cssVar;
     s0.setAttribute("stop-opacity", "1");
     const s1 = document.createElementNS("http://www.w3.org/2000/svg", "stop");
     s1.setAttribute("offset", "100%");
-    s1.setAttribute("stop-color", CAT_COLOR[cat] || "#ffffff");
+    s1.style.stopColor = cssVar;
     s1.setAttribute("stop-opacity", "1");
     g.appendChild(s0);
     g.appendChild(s1);
@@ -1960,7 +2061,7 @@ function startWireLoop() {
       box.setAttribute("fill-opacity", p.fillOpacity);
       // Huge / main captions get a 2x stroke so their boxes read as
       // load-bearing among the smaller sub/micro ones.
-      box.setAttribute("stroke-width", p.fillOpacity >= 0.30 ? 1.0 : 0.22);
+      box.setAttribute("stroke-width", p.fillOpacity >= 0.30 ? 1.56 : 0.3432);
       p.usedPorts = new Set();
     }
     for (const p of buckets.ACTION) {
@@ -1974,7 +2075,7 @@ function startWireLoop() {
       box.setAttribute("height", (r.height - insetY * 2 + PAD * 2).toFixed(1));
       box.setAttribute("rx", (Math.min(r.height, r.width) * 0.45).toFixed(1));
       box.setAttribute("fill-opacity", p.fillOpacity);
-      box.setAttribute("stroke-width", p.fillOpacity >= 0.30 ? 1.0 : 0.22);
+      box.setAttribute("stroke-width", p.fillOpacity >= 0.30 ? 1.56 : 0.3432);
       p.usedPorts = new Set();
     }
     for (const p of buckets.QUALITY) {
@@ -1986,7 +2087,7 @@ function startWireLoop() {
       e.setAttribute("rx", (r.width / 2 + PAD + 2).toFixed(1));
       e.setAttribute("ry", (r.height / 2 * (1 - SHRINK) + PAD).toFixed(1));
       e.setAttribute("fill-opacity", p.fillOpacity);
-      e.setAttribute("stroke-width", p.fillOpacity >= 0.30 ? 1.0 : 0.22);
+      e.setAttribute("stroke-width", p.fillOpacity >= 0.30 ? 1.56 : 0.3432);
       p.usedPorts = new Set();
     }
     for (const p of buckets.RELATION) {
@@ -2000,7 +2101,7 @@ function startWireLoop() {
       box.setAttribute("height", (r.height - insetY * 2 + PAD * 2).toFixed(1));
       box.setAttribute("rx", "0");
       box.setAttribute("fill-opacity", p.fillOpacity);
-      box.setAttribute("stroke-width", p.fillOpacity >= 0.30 ? 1.0 : 0.22);
+      box.setAttribute("stroke-width", p.fillOpacity >= 0.30 ? 1.56 : 0.3432);
       p.usedPorts = new Set();
     }
 
@@ -2223,7 +2324,7 @@ function startWireLoop() {
     const SEM_PAD = 5;
     const semAlive = new Map();   // pk -> {...}
     const semWordRoles = new Map();
-    const focusCatNow = document.body.dataset.focusCat;
+    const focusCatNow = getFocusCat();
     const semSuppressed = focusCatNow && focusCatNow !== "SEMANTIC";
     for (const [aKey, aWord] of (semSuppressed ? [] : wordIndex)) {
       const sims = aWord._similar;
@@ -2296,7 +2397,7 @@ function startWireLoop() {
         const stops = [];
         for (let i = 0; i < 4; i++) {
           const s = document.createElementNS("http://www.w3.org/2000/svg", "stop");
-          s.setAttribute("stop-color", "#fff200");
+          s.style.stopColor = "var(--c-semantic-active)";
           s.setAttribute("stop-opacity", "0");
           g.appendChild(s);
           stops.push(s);
@@ -2462,7 +2563,7 @@ function startWireLoop() {
       // Avoid re-setting fill / fill-opacity if they're already correct;
       // pool boxes get reused frame to frame.
       if (box._lastFo !== fo) {
-        box.style.fill = "#fff200";
+        box.style.fill = "var(--c-semantic-active)";
         box.setAttribute("fill-opacity", fo);
         box._lastFo = fo;
       }
@@ -2942,9 +3043,9 @@ async function renderStaticPoster({ captions, semantic }) {
   // class, so stroke / fill / stroke-width / dash patterns all have to
   // live on the elements themselves before we serialise.
   const PALETTE = {
-    entity:   "#ff00ff",
-    action:   "#00e5ff",
-    quality:  "#4cd44c",
+    entity:   _cssv("--c-entity",  "#1e7158"),
+    action:   _cssv("--c-action",  "#4cb6df"),
+    quality:  _cssv("--c-quality", "#e75450"),
     relation: "#8a8a8a",
   };
   // Foreground wires: paths.
@@ -2964,7 +3065,7 @@ async function renderStaticPoster({ captions, semantic }) {
       }
       p.style.stroke = "";   // drop the escaped inline so it can't override
       p.setAttribute("fill", "none");
-      p.setAttribute("stroke-width", "0.6");
+      p.setAttribute("stroke-width", "0.936");
       p.setAttribute("stroke-opacity", "0.85");
       // Clear the JS-driven dash trick used for enter/exit animation;
       // poster output should show every wire fully.
@@ -2978,21 +3079,21 @@ async function renderStaticPoster({ captions, semantic }) {
     document.querySelectorAll(`#wires rect.${cls}-box`).forEach(b => {
       b.setAttribute("stroke", hex);
       b.setAttribute("fill", hex);
-      b.setAttribute("stroke-width", "0.6");
+      b.setAttribute("stroke-width", "0.936");
       b.setAttribute("stroke-opacity", "0.85");
       if (cls === "relation") b.setAttribute("stroke-dasharray", "4 3");
     });
     document.querySelectorAll(`#wires ellipse.${cls}-box`).forEach(b => {
       b.setAttribute("stroke", hex);
       b.setAttribute("fill", hex);
-      b.setAttribute("stroke-width", "0.6");
+      b.setAttribute("stroke-width", "0.936");
       b.setAttribute("stroke-opacity", "0.85");
     });
     // Ports (circles).
     document.querySelectorAll(`#wires circle.${cls}-port`).forEach(c => {
       c.setAttribute("stroke", hex);
       c.setAttribute("fill", hex);
-      c.setAttribute("stroke-width", "0.4");
+      c.setAttribute("stroke-width", "0.624");
       c.setAttribute("stroke-opacity", "0.85");
     });
   }
@@ -3005,11 +3106,11 @@ async function renderStaticPoster({ captions, semantic }) {
     node.style.fill = "";
   }
   document.querySelectorAll("#wires-bg path.semantic").forEach(p => {
-    unescapeUrlFill(p, "#fff200");
+    unescapeUrlFill(p, SEMANTIC_COLOR());
     p.setAttribute("stroke", "none");
   });
   document.querySelectorAll("#wires-bg rect.semantic-box").forEach(b => {
-    unescapeUrlFill(b, "#fff200");
+    unescapeUrlFill(b, "#ccff00");
     b.setAttribute("stroke", "none");
   });
 
@@ -3121,6 +3222,41 @@ function freezeAllWires() {
   window.frozen = true;
 }
 
+// Animated colour field: seven vertical curtains, each one only drifts
+// horizontally a few percent on its own slow sine so neighbouring bands
+// breathe past each other -- Perlin-z feel without any noise lookup.
+(function startBgfx() {
+  const el = document.getElementById("bgfx");
+  if (!el) return;
+  // cx = home position (matches CSS), ax = horiz drift amplitude (%),
+  // px = period in seconds, ph = phase offset.
+  // Two phase-offset sines per band (px / px2) sum into a non-repeating
+  // meander, and amplitudes are big enough that each band sweeps most
+  // of the viewport instead of breathing around a home column.
+  const bands = [
+    { cx: 20, ax: 28, px: 23, ph: 0.00, ax2: 12, px2: 41, ph2: 1.80 },
+    { cx: 35, ax: 32, px: 19, ph: 1.20, ax2: 14, px2: 53, ph2: 0.40 },
+    { cx: 50, ax: 35, px: 27, ph: 2.40, ax2: 16, px2: 37, ph2: 3.10 },
+    { cx: 50, ax: 30, px: 21, ph: 3.30, ax2: 14, px2: 47, ph2: 4.60 },
+    { cx: 50, ax: 35, px: 25, ph: 4.10, ax2: 16, px2: 31, ph2: 0.90 },
+    { cx: 65, ax: 32, px: 18, ph: 5.00, ax2: 14, px2: 59, ph2: 2.20 },
+    { cx: 80, ax: 28, px: 29, ph: 0.60, ax2: 12, px2: 43, ph2: 5.40 },
+  ];
+  const t0 = performance.now();
+  function tick(now) {
+    const t = (now - t0) / 1000;
+    for (let i = 0; i < bands.length; i++) {
+      const b = bands[i];
+      const x = b.cx
+        + b.ax  * Math.sin((2 * Math.PI * t) / b.px  + b.ph)
+        + b.ax2 * Math.sin((2 * Math.PI * t) / b.px2 + b.ph2);
+      el.style.setProperty(`--bx${i}`, x.toFixed(2) + "%");
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+
 async function main() {
   // Compute viewport scale once on load (no live resize hook -- a user
   // hitting the canvas at 1512px stays at scale=1 even if they grow
@@ -3136,9 +3272,13 @@ async function main() {
   GRID_CELL_W = Math.round(64 * SCALE);
   GRID_CELL_H = Math.round(32 * SCALE);
   // Sync the faint dot-grid background to the new cell size.
+  // Three stacked layers: grid-x, grid-y, bg photo -- keep all three values
+  // when overriding from JS or the photo will be dropped.
   const gx = GRID_CELL_W / 2, gy = GRID_CELL_H / 2;
-  document.body.style.backgroundSize = `${gx * 2}px ${gy * 2}px`;
-  document.body.style.backgroundPosition = `${SAFE_MARGIN_PX}px ${SAFE_MARGIN_PX}px`;
+  const gridSize = `${gx * 2}px ${gy * 2}px`;
+  const gridPos  = `${SAFE_MARGIN_PX}px ${SAFE_MARGIN_PX}px`;
+  document.body.style.backgroundSize     = `${gridSize}, ${gridSize}, cover`;
+  document.body.style.backgroundPosition = `${gridPos}, ${gridPos}, center center`;
 
   const res = await fetch("clips.json");
   clips = await res.json();
@@ -3178,7 +3318,7 @@ async function main() {
   let externalWin = null;
 
   function syncInPageControls() {
-    const cat = document.body.dataset.focusCat || null;
+    const cat = getFocusCat();
     for (const b of document.querySelectorAll("#controls button.row[data-cat]")) {
       b.classList.toggle("active", b.dataset.cat === cat);
     }
@@ -3186,58 +3326,28 @@ async function main() {
     document.getElementById("poemBtn")  ?.classList.toggle("active", !!poemBgController);
     document.getElementById("muteBtn")  ?.classList.toggle("active", !!muted);
     document.getElementById("zoomBtn")  ?.classList.toggle("active", document.body.classList.contains("zoomed"));
+    document.getElementById("palBtn")   ?.classList.toggle("active", document.body.classList.contains("palette-legacy"));
   }
 
   function broadcastState() {
     syncInPageControls();
     controlBus.postMessage({
       type: "state",
-      focusCat: document.body.dataset.focusCat || null,
+      focusCat: getFocusCat(),
       frozen,
       muted,
       poemOn: !!poemBgController,
       zoomed: document.body.classList.contains("zoomed"),
+      legacyPalette: document.body.classList.contains("palette-legacy"),
     });
   }
 
   function setFocusCat(cat) {
-    const cur = document.body.dataset.focusCat;
-    if (cur === cat || cat === null) {
-      delete document.body.dataset.focusCat;
-    } else {
-      document.body.dataset.focusCat = cat;
-    }
-    // Spread the per-element opacity transitions over ~700ms via a
-    // random delay so the browser doesn't try to re-composite thousands
-    // of caption/wire/box nodes in the same frame. Cheaper than a single
-    // big repaint and reads as a "wave" through the scene.
-    const STAGGER_MS = 700;
-    const caps = document.getElementsByClassName("caption");
-    for (let i = 0; i < caps.length; i++) {
-      caps[i].style.transitionDelay = (Math.random() * STAGGER_MS) + "ms";
-    }
-    // Wire layer children also stagger so the wave includes the box +
-    // path opacity changes. setProperty on style is cheaper than
-    // setAttribute and SVG does honour CSS transitions.
-    const svg   = document.getElementById("wires");
-    const svgBg = document.getElementById("wires-bg");
-    if (svg) {
-      const kids = svg.children;
-      for (let i = 0; i < kids.length; i++) {
-        kids[i].style.transitionDelay = (Math.random() * STAGGER_MS) + "ms";
-      }
-    }
-    if (svgBg) {
-      const kids = svgBg.children;
-      for (let i = 0; i < kids.length; i++) {
-        kids[i].style.transitionDelay = (Math.random() * STAGGER_MS) + "ms";
-      }
-    }
+    const cur = getFocusCat();
+    // Same role tapped again -> clear; otherwise swap the body class.
+    for (const c of FOCUS_CATS) document.body.classList.remove("focus-" + c);
+    if (cat && cat !== cur) document.body.classList.add("focus-" + cat);
 
-    for (const el of [document.getElementById("stage"), document.getElementById("wires")]) {
-      if (!el) continue;
-      for (const a of el.getAnimations({ subtree: false })) a.cancel();
-    }
     document.body.classList.remove("focus-flash");
     document.body.classList.add("focus-flash");
     // Defer the gloss-label rebuild past the focus wave so the user
@@ -3291,6 +3401,7 @@ async function main() {
     else if (m.type === "toggle-poem")   togglePoem();
     else if (m.type === "toggle-mute")   toggleMute();
     else if (m.type === "toggle-zoom")   toggleZoom();
+    else if (m.type === "toggle-palette") togglePalette();
     else if (m.type === "request-state") broadcastState();
     else if (m.type === "user-text") handleUserText(m.text);
   });
@@ -3396,6 +3507,15 @@ async function main() {
   document.getElementById("poemBtn")  ?.addEventListener("click", togglePoem);
   document.getElementById("muteBtn")  ?.addEventListener("click", toggleMute);
   document.getElementById("zoomBtn")  ?.addEventListener("click", toggleZoom);
+  // PALETTE toggle: flip a class on <body>. Every wire/box/band binds
+  // to CSS variables (--c-*-active for boxes, --c-semantic-active for
+  // bands), so the swap is a single repaint with no JS walking nodes.
+  function togglePalette() {
+    document.body.classList.toggle("palette-legacy");
+    syncInPageControls();
+    broadcastState();
+  }
+  document.getElementById("palBtn")   ?.addEventListener("click", togglePalette);
 
   // User-text form (in-page).
   const userForm = document.getElementById("userForm");
@@ -3455,7 +3575,7 @@ async function main() {
 const glossByWord = new WeakMap();   // word DOM -> label DOM
 const glossActive = new Set();        // currently visible label DOM elements
 function refreshGlossLabels() {
-  const focusCat = document.body.dataset.focusCat;
+  const focusCat = getFocusCat();
 
   if (!focusCat) {
     // Tear all labels down with an exit animation.

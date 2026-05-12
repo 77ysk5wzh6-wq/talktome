@@ -48,6 +48,10 @@
   .swatch.poem   { background: #000; color: #000; border-color: #000; }
   .swatch.mute   { background: #888; color: #888; border-color: #888; }
   .swatch.zoom   { background: transparent; color: #444; border-color: #444; border-style: dotted; }
+  .swatch.pal    {
+    background: linear-gradient(90deg, #1e7158 0 25%, #4cb6df 25% 50%, #e75450 50% 75%, #ccff00 75% 100%);
+    color: #444; border-color: #444;
+  }
   .label { color: #444; font-weight: 600; }
   .upos  { color: #888; font-size: 9px; margin-left: auto; }
   hr { border: none; border-top: 1px solid #ddd; margin: 8px 0; }
@@ -101,6 +105,11 @@
   <span class="label">ZOOM</span>
   <span class="upos">3× centre</span>
 </button>
+<button class="row" id="palBtn">
+  <span class="swatch pal"></span>
+  <span class="label">PALETTE</span>
+  <span class="upos">brita / neon</span>
+</button>
 <hr>
 <form id="userForm" autocomplete="off">
   <input type="text" id="userText" maxlength="60"
@@ -138,6 +147,7 @@ const freezeBtn = document.getElementById("freezeBtn");
 const poemBtn   = document.getElementById("poemBtn");
 const muteBtn   = document.getElementById("muteBtn");
 const zoomBtn   = document.getElementById("zoomBtn");
+const palBtn    = document.getElementById("palBtn");
 
 catBtns.forEach(btn => {
   btn.addEventListener("click", () => {
@@ -148,6 +158,7 @@ freezeBtn.addEventListener("click", () => bus.postMessage({ type: "toggle-freeze
 poemBtn  .addEventListener("click", () => bus.postMessage({ type: "toggle-poem" }));
 muteBtn  .addEventListener("click", () => bus.postMessage({ type: "toggle-mute" }));
 zoomBtn  .addEventListener("click", () => bus.postMessage({ type: "toggle-zoom" }));
+palBtn   .addEventListener("click", () => bus.postMessage({ type: "toggle-palette" }));
 
 bus.addEventListener("message", (ev) => {
   const m = ev.data;
@@ -157,6 +168,7 @@ bus.addEventListener("message", (ev) => {
   poemBtn.classList.toggle("active", !!m.poemOn);
   muteBtn.classList.toggle("active", !!m.muted);
   zoomBtn.classList.toggle("active", !!m.zoomed);
+  palBtn.classList.toggle("active", !!m.legacyPalette);
 });
 
 // User-input form: sends the text over the bus, then waits for the
