@@ -6,7 +6,7 @@
 <!-- Serif fallbacks per script. The browser pulls them from Google Fonts. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Nanum+Myeongjo:wght@400;700&family=Noto+Serif+KR:wght@400;600&family=Noto+Serif+JP:wght@400;600&family=Noto+Serif+SC:wght@400;600&family=Noto+Naskh+Arabic:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Fira+Code:wght@300;400;500;600;700&family=Nanum+Myeongjo:wght@400;700&family=Noto+Serif+KR:wght@400;600&family=Noto+Serif+JP:wght@400;600&family=Noto+Serif+SC:wght@400;600&family=Noto+Naskh+Arabic:wght@400;600&display=swap" rel="stylesheet">
 <style>
   :root {
     color-scheme: light;
@@ -17,10 +17,10 @@
     /* Category palette (Brita 131-inspired by default). The toggle button
        in #controls swaps to the legacy neon set by adding .palette-legacy
        to <body>. */
-    --c-entity:   #1e7158;
-    --c-action:   #4cb6df;
-    --c-quality:  #e75450;
-    --c-semantic: #ccff00;
+    --c-entity:   #4a9beb;
+    --c-action:   #f3b1d0;
+    --c-quality:  #4ab088;
+    --c-semantic: #f0db5a;
     /* Per-category *active* colour. By default each role's active
        colour equals its full palette hex. Adding .focus-<CAT> to <body>
        swaps every other role's active colour to a faded grey so only
@@ -429,15 +429,24 @@
     line-height: 1.4;
     transition: font-size 320ms ease-out, max-width 320ms ease-out, color 320ms linear, opacity 320ms linear;
   }
-  /* Per-language serif overrides. The default sans uses the html/body
-     font-family above; captions tagged with data-fontstyle="serif" pull a
-     language-appropriate serif instead. The serif assignment is random
-     at caption creation time. */
-  .caption[lang="en"][data-fontstyle="serif"],
-  .caption[lang="no"][data-fontstyle="serif"] {
-    font-family: "EB Garamond", "Adobe Garamond Pro", Garamond, Georgia, serif;
-    font-weight: 500;
+  /* English / Norwegian captions always use Fira Code (mono), regardless
+     of the random fontstyle assignment. Mono in a serif crowd reads as
+     "the recorded transcript line" against the hand-set glyphs of the
+     other scripts. */
+  .caption[lang="en"],
+  .caption[lang="no"] {
+    font-family: "Fira Code", "JetBrains Mono", "Menlo", "Consolas", monospace;
+    font-weight: 300;
+    font-feature-settings: "calt" 0;  /* drop the ligatures: keep == as two glyphs */
   }
+  /* Fira reads heavier than Garamond / Helvetica at the same numeric
+     weight, so push every tier one step lighter for English/Norwegian
+     captions specifically. */
+  .caption[lang="en"].huge,  .caption[lang="no"].huge  { font-weight: 500; }
+  .caption[lang="en"].main,  .caption[lang="no"].main  { font-weight: 400; }
+  .caption[lang="en"].sub,   .caption[lang="no"].sub,
+  .caption[lang="en"].micro, .caption[lang="no"].micro { font-weight: 300; }
+  /* Per-language serif overrides for the other scripts. */
   .caption[lang="ko"][data-fontstyle="serif"] {
     font-family: "Nanum Myeongjo", "Noto Serif KR", "Apple SD Gothic Neo", serif;
   }
@@ -500,6 +509,17 @@
     font-size: calc(7px * var(--scale)); color: #aaa; opacity: 0.30;
     max-width: min(calc(140px * var(--scale)), 14vw);
     font-weight: 400;
+  }
+  /* While a category is in focus, every tier reads as fully lit so
+     micro/sub captions don't fall behind the huge ones. The dim of
+     off-roles is handled by --txt-* on the words themselves. */
+  body.focus-ENTITY .caption,
+  body.focus-ACTION .caption,
+  body.focus-QUALITY .caption,
+  body.focus-RELATION .caption,
+  body.focus-SEMANTIC .caption {
+    opacity: 1;
+    color: #000;
   }
   .ch {
     display: inline-block;
