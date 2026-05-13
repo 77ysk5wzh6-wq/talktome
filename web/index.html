@@ -301,9 +301,10 @@
     stroke-opacity: 0.85;
   }
   #wires rect, #wires ellipse {
-    stroke-width: calc(0.3432px * var(--scale));
-    stroke-opacity: 0.85;
-    /* Fill is set per-category below; per-element fill-opacity carries the
+    stroke-width: calc(0.6864px * var(--scale));
+    /* stroke-opacity is set per-element via boxStrokeAlpha() so micro
+       boxes can be hairline/invisible while huge boxes stay opaque.
+       Fill is set per-category below; per-element fill-opacity carries the
        size (main/sub/micro) into a transparency level. */
   }
   /* ENTITY (NOUN/PROPN/PRON): hard right-angle traces, crisp edges, magenta */
@@ -1069,8 +1070,11 @@ function placeCaption(el) {
   }
 
   const isHuge = el.classList.contains("huge");
-  // Extra clearance huge captions try to keep from each other.
-  const HUGE_GAP = 120;
+  // Extra clearance huge captions try to keep from each other. Their
+  // bounding boxes can run 600–900px wide, so a small gap got swallowed
+  // by the box itself -- this number is the minimum padded gap added
+  // around every huge rect when probing a new huge placement.
+  const HUGE_GAP = 280;
 
   function rectOverlaps(x, y, pad) {
     for (const r of occupiedRects) {
@@ -1096,9 +1100,11 @@ function placeCaption(el) {
   // grid sampling, then pick the one whose distance to the closest
   // existing caption is largest. Spreads captions more evenly without
   // any heatmap / heavier bookkeeping. Huge captions ALSO honour the
-  // HUGE_GAP inflation rule.
+  // HUGE_GAP inflation rule, and get extra retries so the gap
+  // constraint actually holds before we fall back.
   let chosenX = -1, chosenY = -1, chosenScore = -1;
-  for (let t = 0; t < GRID_PLACEMENT_TRIES; t++) {
+  const tries = isHuge ? GRID_PLACEMENT_TRIES * 4 : GRID_PLACEMENT_TRIES;
+  for (let t = 0; t < tries; t++) {
     const cx = Math.floor(Math.random() * cellsX);
     const cy = Math.floor(Math.random() * cellsY);
     const x = SAFE_MARGIN_PX + cx * GRID_CELL_W;
@@ -1660,7 +1666,33 @@ function startWireLoop() {
   function strokeAlphaFor(fillOpacity) {
     if (fillOpacity >= 0.30) return 1.0;     // main
     if (fillOpacity >= 0.10) return 0.55;    // sub
-    return 0.22;                              // micro/silent
+    return 0.154;                             // micro/silent (~30% more transparent)
+  }
+  // Box / ellipse stroke width scaled to caption size. Huge captions
+  // (fillOpacity ≈ 0.32) get the thickest outline so they read as the
+  // load-bearing nodes; sub and micro taper progressively. Twice the
+  // previous values so the box outline reads cleanly against thin wires.
+  function boxStrokeWidth(fillOpacity) {
+    if (fillOpacity >= 0.30) return 6.0;     // huge / main: load-bearing
+    if (fillOpacity >= 0.20) return 2.8;     // main lower band
+    if (fillOpacity >= 0.10) return 0.9;     // sub
+    return 0.18;                              // micro / silent: hairline
+  }
+  // Box / ellipse stroke opacity scaled to caption size. Micro / silent
+  // boxes get a noticeably fainter outline (~30% more transparent than
+  // the older flat 0.85).
+  function boxStrokeAlpha(fillOpacity) {
+    if (fillOpacity >= 0.30) return 0.85;    // huge / main
+    if (fillOpacity >= 0.10) return 0.55;    // sub
+    return 0.18;                              // micro / silent
+  }
+  // Box / ellipse FILL opacity. For huge / main / sub it tracks the
+  // word's own fillOpacity; for micro / silent we hold it a touch
+  // below the stroke so the outline carries the shape and the fill
+  // only barely tints it.
+  function boxFillAlpha(fillOpacity) {
+    if (fillOpacity >= 0.10) return fillOpacity;
+    return 0.10;
   }
 
   function getRectBox(cat, cls) {
@@ -2078,10 +2110,11 @@ function startWireLoop() {
       box.setAttribute("width",  (r.width + PAD * 2).toFixed(1));
       box.setAttribute("height", (r.height - insetY * 2 + PAD * 2).toFixed(1));
       box.setAttribute("rx", "0");
-      box.setAttribute("fill-opacity", p.fillOpacity);
+      box.setAttribute("fill-opacity", boxFillAlpha(p.fillOpacity));
       // Huge / main captions get a 2x stroke so their boxes read as
       // load-bearing among the smaller sub/micro ones.
-      box.setAttribute("stroke-width", p.fillOpacity >= 0.30 ? 1.56 : 0.3432);
+      box.setAttribute("stroke-width", boxStrokeWidth(p.fillOpacity));
+      box.setAttribute("stroke-opacity", boxStrokeAlpha(p.fillOpacity));
       p.usedPorts = new Set();
     }
     for (const p of buckets.ACTION) {
@@ -2094,8 +2127,9 @@ function startWireLoop() {
       box.setAttribute("width",  (r.width + PAD * 2).toFixed(1));
       box.setAttribute("height", (r.height - insetY * 2 + PAD * 2).toFixed(1));
       box.setAttribute("rx", (Math.min(r.height, r.width) * 0.45).toFixed(1));
-      box.setAttribute("fill-opacity", p.fillOpacity);
-      box.setAttribute("stroke-width", p.fillOpacity >= 0.30 ? 1.56 : 0.3432);
+      box.setAttribute("fill-opacity", boxFillAlpha(p.fillOpacity));
+      box.setAttribute("stroke-width", boxStrokeWidth(p.fillOpacity));
+      box.setAttribute("stroke-opacity", boxStrokeAlpha(p.fillOpacity));
       p.usedPorts = new Set();
     }
     for (const p of buckets.QUALITY) {
@@ -2106,8 +2140,9 @@ function startWireLoop() {
       e.setAttribute("cy", (r.top + r.height / 2).toFixed(1));
       e.setAttribute("rx", (r.width / 2 + PAD + 2).toFixed(1));
       e.setAttribute("ry", (r.height / 2 * (1 - SHRINK) + PAD).toFixed(1));
-      e.setAttribute("fill-opacity", p.fillOpacity);
-      e.setAttribute("stroke-width", p.fillOpacity >= 0.30 ? 1.56 : 0.3432);
+      e.setAttribute("fill-opacity", boxFillAlpha(p.fillOpacity));
+      e.setAttribute("stroke-width", boxStrokeWidth(p.fillOpacity));
+      e.setAttribute("stroke-opacity", boxStrokeAlpha(p.fillOpacity));
       p.usedPorts = new Set();
     }
     for (const p of buckets.RELATION) {
@@ -2120,8 +2155,9 @@ function startWireLoop() {
       box.setAttribute("width",  (r.width + PAD * 2).toFixed(1));
       box.setAttribute("height", (r.height - insetY * 2 + PAD * 2).toFixed(1));
       box.setAttribute("rx", "0");
-      box.setAttribute("fill-opacity", p.fillOpacity);
-      box.setAttribute("stroke-width", p.fillOpacity >= 0.30 ? 1.56 : 0.3432);
+      box.setAttribute("fill-opacity", boxFillAlpha(p.fillOpacity));
+      box.setAttribute("stroke-width", boxStrokeWidth(p.fillOpacity));
+      box.setAttribute("stroke-opacity", boxStrokeAlpha(p.fillOpacity));
       p.usedPorts = new Set();
     }
 
@@ -3099,21 +3135,21 @@ async function renderStaticPoster({ captions, semantic }) {
     document.querySelectorAll(`#wires rect.${cls}-box`).forEach(b => {
       b.setAttribute("stroke", hex);
       b.setAttribute("fill", hex);
-      b.setAttribute("stroke-width", "0.936");
+      b.setAttribute("stroke-width", "1.872");
       b.setAttribute("stroke-opacity", "0.85");
       if (cls === "relation") b.setAttribute("stroke-dasharray", "4 3");
     });
     document.querySelectorAll(`#wires ellipse.${cls}-box`).forEach(b => {
       b.setAttribute("stroke", hex);
       b.setAttribute("fill", hex);
-      b.setAttribute("stroke-width", "0.936");
+      b.setAttribute("stroke-width", "1.872");
       b.setAttribute("stroke-opacity", "0.85");
     });
     // Ports (circles).
     document.querySelectorAll(`#wires circle.${cls}-port`).forEach(c => {
       c.setAttribute("stroke", hex);
       c.setAttribute("fill", hex);
-      c.setAttribute("stroke-width", "0.624");
+      c.setAttribute("stroke-width", "1.248");
       c.setAttribute("stroke-opacity", "0.85");
     });
   }
